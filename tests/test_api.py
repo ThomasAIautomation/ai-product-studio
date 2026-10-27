@@ -65,3 +65,22 @@ def test_batch_review_edit_and_publish_flow(monkeypatch):
 
         s = client.get("/api/stats").json()
         assert s["by_status"]["published"] == 1 and s["integrity"]["passed"] >= 2
+
+
+def test_manual_mask_correction_recomposes_with_integrity():
+    import numpy as np
+    from PIL import Image
+    with TestClient(main.app) as client:
+        r = client.post("/api/batches", files=[("files", ("t.jpg", io.BytesIO(_photo(5)), "image/jpeg"))],
+                        data={"grouping": "per_foto", "style": "studio"})
+        pid = r.json()["product_ids"][0]
+        p = _wait(client, pid, {"review", "failed"})
+        img = p["images"][0]
+        mask = np.zeros((1200, 1600), np.uint8)
+        mask[300:1000, 440:1160] = 255  # handmatig: ruim kader inclusief hengsel
+        buf = io.BytesIO(); Image.fromarray(mask).save(buf, "PNG")
+        r = client.post(f"/api/images/{img['id']}/mask", files={"file": ("m.png", buf.getvalue(), "image/png")})
+        assert r.status_code == 200, r.text
+        integ = r.json()["integrity"]
+        assert integ["passed"] and integ["completeness"]["manual"] and integ["product_pixels"] == 700 * 720
+        assert "quality_issues" in integ

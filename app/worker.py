@@ -87,7 +87,8 @@ def process(p: dict) -> None:
         db.update("products", pid, analysis_json=json.dumps(data, ensure_ascii=False),
                   title=data["titel"], description_html=data["beschrijving_html"],
                   product_type=data["producttype"], category=data["categorie"],
-                  tags=json.dumps(data["tags"], ensure_ascii=False), seo_title=data["seo_titel"],
+                  tags=json.dumps(list(dict.fromkeys(data["tags"] + [f"staat: {data['staat']['beoordeling']}"])),
+                                  ensure_ascii=False), seo_title=data["seo_titel"],
                   seo_description=data["seo_beschrijving"], handle=data["handle"])
 
     db.update("products", pid, status="review", error=None, analyzed_at=time.time(), next_attempt_at=None)
@@ -145,6 +146,7 @@ def recover_interrupted() -> None:
 
 
 def start() -> list[threading.Thread]:
+    _stop.clear()
     recover_interrupted()
     threads = [threading.Thread(target=_loop, name=f"worker-{i}", daemon=True) for i in range(config.WORKERS)]
     for t in threads:

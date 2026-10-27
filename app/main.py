@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import secrets
 import time
@@ -196,6 +197,31 @@ def delete_product(pid: int):
         c.execute("DELETE FROM images WHERE product_id=?", (pid,))
         c.execute("DELETE FROM products WHERE id=? AND status NOT IN ('processing','publishing')", (pid,))
     return {"ok": True}
+
+
+@app.post("/api/images/{image_id}/mask")
+async def correct_mask(image_id: int, file: UploadFile = File(...)):
+    """Handmatig gecorrigeerde uitsnede: de foto wordt opnieuw samengesteld met déze maskers."""
+    from PIL import Image as PILImage
+    from . import imaging
+    im = db.one("SELECT i.*, p.style, p.status FROM images i JOIN products p ON p.id=i.product_id WHERE i.id=?", (image_id,))
+    if not im:
+        raise HTTPException(404)
+    if im["status"] in ("processing", "publishing", "published"):
+        raise HTTPException(409, "Niet mogelijk in deze status.")
+    mask = PILImage.open(io.BytesIO(await file.read())).convert("L").point(lambda a: 255 if a >= 128 else 0)
+    out_dir = config.OUTPUT_DIR / str(im["product_id"])
+    try:
+        res = imaging.process_photo(Path(im["original_path"]), out_dir, im["style"] or "studio", manual_mask=mask)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+    db.update("images", image_id, processed_path=res["processed_path"], mask_path=res["mask_path"],
+              integrity_json=json.dumps(res["integrity"]), use_processed=1)
+    db.insert("events", product_id=im["product_id"], step=f"uitsnede_handmatig_{im['position']}", status="ok",
+              attempt=1, started_at=time.time(), ended_at=time.time(), duration_ms=0,
+              message="Uitsnede handmatig gecorrigeerd")
+    db.update("products", im["product_id"])
+    return {"ok": True, "integrity": res["integrity"]}
 
 
 @app.post("/api/scenes")

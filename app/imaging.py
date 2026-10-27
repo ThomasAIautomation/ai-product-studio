@@ -238,9 +238,44 @@ def pick_scene() -> tuple[Image.Image, tuple[float, float]] | None:
     return Image.open(p).convert("RGB"), anchor
 
 
-def process_photo(src: Path, out_dir: Path, style: str) -> dict:
+def photo_quality(img: Image.Image, mask: Image.Image) -> list[str]:
+    """Signaleert foto's die opnieuw gemaakt moeten worden. Wijzigt niets aan de foto."""
+    from scipy import ndimage
+    issues = []
+    gray = np.asarray(img.convert("L"), dtype=np.float32)
+    m = np.asarray(mask) > 128
+    if min(img.size) < 1000:
+        issues.append(f"Lage resolutie ({img.width}×{img.height}); minimaal 1000 px aan de korte zijde aanbevolen.")
+    if m.any():
+        sharp = float(ndimage.laplace(gray)[m].var())
+        if sharp < 15:
+            issues.append(f"Foto lijkt onscherp (scherptescore {sharp:.0f}).")
+        mean = float(gray[m].mean())
+        if mean < 40:
+            issues.append("Product is erg donker belicht; details/beschadigingen kunnen wegvallen.")
+        if (gray[m] > 250).mean() > 0.05:
+            issues.append("Delen van het product zijn overbelicht (uitgebeten wit).")
+        rows, cols = np.where(m)
+        h, w = m.shape
+        edge = 2
+        if rows.min() < edge or cols.min() < edge or rows.max() >= h - edge or cols.max() >= w - edge:
+            issues.append("Product raakt de rand van de foto — mogelijk valt een deel buiten beeld.")
+        if m.mean() < 0.04:
+            issues.append("Product beslaat maar een klein deel van de foto; ga dichterbij staan.")
+    return issues
+
+
+def process_photo(src: Path, out_dir: Path, style: str, manual_mask: Image.Image | None = None) -> dict:
+    """manual_mask: handmatig gecorrigeerde uitsnede uit het dashboard (vervangt de AI-segmentatie)."""
     original = load_image(src)
-    mask, completeness = segment(original)
+    if manual_mask is not None:
+        if manual_mask.size != original.size:
+            manual_mask = manual_mask.resize(original.size, Image.NEAREST)
+        mask = manual_mask.convert("L")
+        completeness = {"manual": True, "review_required": False, "possibly_missing_ratio": 0.0,
+                        "agreement_iou": 1.0, "islands_removed": 0, "holes_filled": 0}
+    else:
+        mask, completeness = segment(original)
     scene = anchor = None
     if style == "scene":
         picked = pick_scene()
@@ -253,5 +288,5 @@ def process_photo(src: Path, out_dir: Path, style: str) -> dict:
     out = save_lossless(comp.image, out_dir / f"{src.stem}_{style}")
     mask_path = out_dir / f"{src.stem}_mask.png"
     mask.save(mask_path)
-    integrity = comp.integrity | {"completeness": completeness}
+    integrity = comp.integrity | {"completeness": completeness, "quality_issues": photo_quality(original, mask)}
     return {"processed_path": str(out), "mask_path": str(mask_path), "integrity": integrity}

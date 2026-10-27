@@ -97,6 +97,16 @@ figcaption{font-size:12px;color:var(--muted);margin-top:4px}
 </section>
 </main>
 
+<div id="maskmodal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;overflow:auto;padding:16px">
+ <div class="card" style="max-width:1100px;margin:0 auto">
+  <div class="row" style="justify-content:space-between"><h2 style="margin:0">Uitsnede corrigeren</h2><button class="btn ghost" id="mclose">Sluiten</button></div>
+  <p class="muted">Donker = achtergrond (wordt vervangen). Helder = tas (blijft exact origineel). Schilder ontbrekende delen bij, of verwijder achtergrond die is meegekomen.</p>
+  <div class="row"><label style="margin:0"><input type="radio" name="mmode" value="add" checked style="width:auto"> Toevoegen aan tas</label>
+   <label style="margin:0"><input type="radio" name="mmode" value="erase" style="width:auto"> Verwijderen (achtergrond)</label>
+   <label style="margin:0">Penseel <input type="range" id="msize" min="4" max="200" value="30" style="width:160px;vertical-align:middle"></label>
+   <button class="btn ghost" id="mundo">Ongedaan maken</button><button class="btn" id="msave">Opslaan en opnieuw samenstellen</button><span id="mmsg" class="muted"></span></div>
+  <canvas id="mcanvas" style="width:100%;margin-top:12px;border-radius:8px;cursor:crosshair;touch-action:none"></canvas>
+ </div></div>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const LABEL={queued:'In wachtrij',uploading:'Uploaden',processing:'Verwerken',retry_wait:'Opnieuw proberen',review:'Te controleren',failed:'Mislukt',
@@ -161,7 +171,9 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
    ${p.images.map(im=>`<div class="cmp" style="margin-bottom:14px"><figure><img src="${im.original_url}"><figcaption>Origineel ${im.position}</figcaption></figure>
     <figure>${im.processed_url?`<img src="${im.processed_url}">`:'<div class="note">Nog niet bewerkt</div>'}<figcaption>
     ${im.integrity?(im.integrity.passed?`✔ Pixelcontrole geslaagd: ${im.integrity.product_pixels.toLocaleString('nl-NL')} tas-pixels identiek, schaal 1:1`:`✖ Pixelcontrole mislukt`):''}
+    ${im.integrity&&im.integrity.quality_issues&&im.integrity.quality_issues.length?im.integrity.quality_issues.map(q=>`<div class="note" style="color:var(--warn)">📷 ${esc(q)}</div>`).join(''):''}
     ${im.integrity&&im.integrity.completeness?(im.integrity.completeness.review_required?`<div class="note err">⚠ Uitsnede controleren: ${(im.integrity.completeness.possibly_missing_ratio*100).toFixed(1)}% mogelijk ontbrekend volgens controlemodel${im.integrity.completeness.islands_removed?`, ${im.integrity.completeness.islands_removed} losse fragment(en) verwijderd`:''}. Vergelijk goed met het origineel.</div>`:`<div>✔ Volledigheidscontrole: modellen ${(im.integrity.completeness.agreement_iou*100).toFixed(1)}% eens${im.integrity.completeness.holes_filled?`, ${im.integrity.completeness.holes_filled} gat(en)/beschadiging(en) behouden`:''}</div>`):''}
+    ${im.mask_url&&editable?`<button class="btn ghost" style="padding:4px 10px;font-size:13px;margin-top:6px" onclick="openMaskEditor(${im.id},'${im.original_url}','${im.mask_url}')">✎ Uitsnede corrigeren</button>`:''}
     ${im.processed_url?`<label style="display:inline;margin-left:8px"><input type="checkbox" style="width:auto" data-img="${im.id}" ${im.use_processed?'checked':''} ${editable?'':'disabled'}> bewerkte versie gebruiken</label>`:''}
     </figcaption></figure></div>`).join('')}
    <p class="muted" style="font-size:12px">Controleer de uitsnede: valt een deel van de tas (hengsel, riem) weg, kies dan de originele foto.</p></div>
@@ -201,6 +213,36 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
  $('#reanalyze').onclick=()=>act(()=>api(`/api/products/${current}/retry?reanalyze=true`,{method:'POST'}),'Opnieuw in de wachtrij.');
  $('#del').onclick=()=>confirm('Product verwijderen uit de studio?')&&act(async()=>{await api('/api/products/'+current,{method:'DELETE'});show('list')},'Verwijderd.');
 }
+
+// Mask editor
+let M=null;
+async function openMaskEditor(imageId,origUrl,maskUrl){
+ const load=u=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=u+'?t='+Date.now()});
+ const [orig,mask]=await Promise.all([load(origUrl),load(maskUrl)]);
+ const W=orig.naturalWidth,H=orig.naturalHeight, alpha=document.createElement('canvas');alpha.width=W;alpha.height=H;
+ const ac=alpha.getContext('2d');ac.drawImage(mask,0,0,W,H);const d=ac.getImageData(0,0,W,H);
+ for(let i=0;i<d.data.length;i+=4){const v=d.data[i]>=128?255:0;d.data[i]=d.data[i+1]=d.data[i+2]=255;d.data[i+3]=v}ac.putImageData(d,0,0);
+ const cv=$('#mcanvas');cv.width=W;cv.height=H;M={imageId,orig,alpha,ac,cv,W,H,undo:[]};
+ $('#maskmodal').classList.remove('hidden');$('#mmsg').textContent='';drawMask()}
+function drawMask(){const {cv,orig,alpha,W,H}=M,c=cv.getContext('2d');c.globalCompositeOperation='source-over';c.drawImage(orig,0,0);
+ const shade=document.createElement('canvas');shade.width=W;shade.height=H;const s=shade.getContext('2d');
+ s.fillStyle='rgba(10,20,40,.72)';s.fillRect(0,0,W,H);s.globalCompositeOperation='destination-out';s.drawImage(alpha,0,0);c.drawImage(shade,0,0)}
+let painting=false;
+function paint(e){const r=M.cv.getBoundingClientRect(),x=(e.clientX-r.left)*M.W/r.width,y=(e.clientY-r.top)*M.H/r.height,
+ rad=$('#msize').value*M.W/r.width/2, erase=document.querySelector('[name=mmode]:checked').value==='erase';
+ M.ac.globalCompositeOperation=erase?'destination-out':'source-over';M.ac.fillStyle='#fff';M.ac.beginPath();M.ac.arc(x,y,rad,0,7);M.ac.fill();drawMask()}
+$('#mcanvas').addEventListener('pointerdown',e=>{if(!M)return;painting=true;M.undo.push(M.ac.getImageData(0,0,M.W,M.H));if(M.undo.length>10)M.undo.shift();paint(e)});
+$('#mcanvas').addEventListener('pointermove',e=>painting&&paint(e));
+window.addEventListener('pointerup',()=>painting=false);
+$('#mundo').onclick=()=>{if(M&&M.undo.length){M.ac.putImageData(M.undo.pop(),0,0);drawMask()}};
+$('#mclose').onclick=()=>{$('#maskmodal').classList.add('hidden');M=null};
+$('#msave').onclick=async()=>{const out=document.createElement('canvas');out.width=M.W;out.height=M.H;const o=out.getContext('2d');
+ o.fillStyle='#000';o.fillRect(0,0,M.W,M.H);o.drawImage(M.alpha,0,0);
+ const blob=await new Promise(r=>out.toBlob(r,'image/png'));const fd=new FormData();fd.append('file',blob,'mask.png');
+ $('#mmsg').textContent='Bezig…';
+ try{const r=await api(`/api/images/${M.imageId}/mask`,{method:'POST',body:fd});
+  $('#mmsg').textContent=r.integrity.passed?'✔ Opgeslagen, pixelcontrole geslaagd.':'✖ Pixelcontrole mislukt';setTimeout(()=>{$('#mclose').click();loadEdit(true)},900)}
+ catch(e){$('#mmsg').textContent='Fout: '+e.message}};
 
 // Monitor
 async function loadMonitor(){const s=await api('/api/stats');const b=s.by_status;
