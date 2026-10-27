@@ -157,10 +157,16 @@ def edit_product(pid: int, body: ProductEdit):
 
 
 @app.post("/api/products/{pid}/approve")
-def approve(pid: int):
+def approve(pid: int, confirm_warnings: bool = False):
     p = db.one("SELECT status, title FROM products WHERE id=?", (pid,))
     if not p:
         raise HTTPException(404)
+    flagged = db.query("SELECT position FROM images WHERE product_id=? AND use_processed=1 "
+                       "AND json_extract(integrity_json,'$.completeness.review_required')=1", (pid,))
+    if flagged and not confirm_warnings:
+        raise HTTPException(409, {"code": "uitsnede_waarschuwing", "positions": [f["position"] for f in flagged],
+                                  "message": "Uitsnede van foto " + ", ".join(str(f["position"]) for f in flagged)
+                                  + " heeft een waarschuwing. Corrigeer de uitsnede, kies de originele foto, of bevestig."})
     if p["status"] not in ("review", "publish_failed"):
         raise HTTPException(409, f"Status '{p['status']}' kan niet gepubliceerd worden.")
     if not p["title"]:
@@ -240,7 +246,7 @@ async def upload_scene(file: UploadFile = File(...), anchor_x: float = Form(0.5)
 def stats():
     by_status = {r["status"]: r["n"] for r in db.query("SELECT status, COUNT(*) n FROM products GROUP BY status")}
     cost = db.one("SELECT COALESCE(SUM(cost_usd),0) total, COALESCE(SUM(input_tokens),0) tin, "
-                  "COALESCE(SUM(output_tokens),0) tout, COUNT(cost_usd) calls FROM events")
+                  "COALESCE(SUM(output_tokens),0) tout, COUNT(model) calls FROM events")
     lead = db.one("SELECT AVG(analyzed_at - created_at) avg_s, MAX(analyzed_at - created_at) max_s, COUNT(*) n "
                   "FROM products WHERE analyzed_at IS NOT NULL")
     to_shop = db.one("SELECT AVG(published_at - created_at) avg_s FROM products WHERE published_at IS NOT NULL")

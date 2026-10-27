@@ -111,7 +111,7 @@ figcaption{font-size:12px;color:var(--muted);margin-top:4px}
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const LABEL={queued:'In wachtrij',uploading:'Uploaden',processing:'Verwerken',retry_wait:'Opnieuw proberen',review:'Te controleren',failed:'Mislukt',
 publish_queued:'Publicatie gepland',publishing:'Publiceren',publish_retry:'Publicatie opnieuw',publish_failed:'Publicatie mislukt',published:'Concept in Shopify'};
-const api=async(u,o={})=>{const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j};
+const api=async(u,o={})=>{const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.detail&&j.detail.message||j.detail||r.statusText);e.detail=j.detail;throw e}return j};
 const ago=t=>t?new Date(t*1000).toLocaleString('nl-NL',{dateStyle:'short',timeStyle:'short'}):'';
 const secs=s=>s==null?'–':s<90?`${s.toFixed(1)} s`:`${(s/60).toFixed(1)} min`;
 let view='upload', current=null, files=[];
@@ -199,7 +199,7 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
    <div id="msg" class="muted" style="margin-top:8px"></div>
   </div></div>
   <div class="card" style="margin-top:16px"><h3 style="margin-top:0">Verwerkingslog</h3><table><thead><tr><th>Stap</th><th>Poging</th><th>Status</th><th>Duur</th><th>Kosten</th><th>Melding</th></tr></thead><tbody>
-  ${p.events.map(e=>`<tr><td>${esc(e.step)}</td><td>${e.attempt??''}</td><td>${esc(e.status)}</td><td>${(e.duration_ms/1000).toFixed(1)} s</td><td>${e.cost_usd!=null?'$'+e.cost_usd.toFixed(4):''}</td><td class="muted">${esc(e.message)}</td></tr>`).join('')}</tbody></table></div>`;
+  ${p.events.map(e=>`<tr><td>${esc(e.step)}</td><td>${e.attempt??''}</td><td>${esc(e.status)}</td><td>${(e.duration_ms/1000).toFixed(1)} s</td><td>${e.cost_usd!=null?'$'+e.cost_usd.toFixed(4):(e.input_tokens?`${e.input_tokens+e.output_tokens} tokens`:'')}</td><td class="muted">${esc(e.message)}</td></tr>`).join('')}</tbody></table></div>`;
  const cnt=()=>{$('#c1').textContent=`(${$('#f-seo_title').value.length}/60)`;$('#c2').textContent=`(${$('#f-seo_description').value.length}/155)`};cnt();
  ['#f-seo_title','#f-seo_description'].forEach(s=>$(s).oninput=cnt);
  $('#back').onclick=()=>show('list');
@@ -209,7 +209,11 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
   await api('/api/products/'+current,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})};
  const act=async(fn,ok)=>{try{await fn();$('#msg').textContent=ok;loadEdit(true)}catch(e){$('#msg').textContent='Fout: '+e.message}};
  $('#save').onclick=()=>act(save,'Opgeslagen.');
- $('#approve').onclick=()=>act(async()=>{await save();await api(`/api/products/${current}/approve`,{method:'POST'})},'Wordt als concept naar Shopify gestuurd…');
+ $('#approve').onclick=()=>act(async()=>{await save();
+  try{await api(`/api/products/${current}/approve`,{method:'POST'})}
+  catch(e){if(!(e.detail&&e.detail.code==='uitsnede_waarschuwing'))throw e;
+   if(!confirm(e.message+'\n\nHeb je de bewerkte foto vergeleken met het origineel en is hij correct?'))throw new Error('Publicatie geannuleerd — controleer de uitsnede.');
+   await api(`/api/products/${current}/approve?confirm_warnings=true`,{method:'POST'})}},'Wordt als concept naar Shopify gestuurd…');
  $('#reanalyze').onclick=()=>act(()=>api(`/api/products/${current}/retry?reanalyze=true`,{method:'POST'}),'Opnieuw in de wachtrij.');
  $('#del').onclick=()=>confirm('Product verwijderen uit de studio?')&&act(async()=>{await api('/api/products/'+current,{method:'DELETE'});show('list')},'Verwijderd.');
 }
@@ -249,7 +253,7 @@ async function loadMonitor(){const s=await api('/api/stats');const b=s.by_status
  const k=[['Totaal producten',s.total],['Te controleren',b.review||0],['Concept in Shopify',b.published||0],['Mislukt',(b.failed||0)+(b.publish_failed||0)],
  ['In verwerking',(b.queued||0)+(b.processing||0)+(b.retry_wait||0)+(b.publish_queued||0)+(b.publishing||0)+(b.publish_retry||0)],
  ['Gem. doorlooptijd → controle',secs(s.lead_time_s.avg_to_review)],['Gem. doorlooptijd → Shopify',secs(s.lead_time_s.avg_to_shopify)],
- ['API-kosten totaal','$'+s.cost_usd.toFixed(4)],['Kosten per product','$'+s.cost_per_product_usd.toFixed(4)],
+ ['API-kosten (betaald per $)','$'+s.cost_usd.toFixed(4)],['AI-tokens (in / uit)',`${s.tokens.input.toLocaleString('nl-NL')} / ${s.tokens.output.toLocaleString('nl-NL')}`],['AI-aanroepen',s.tokens.calls],
  ['Pixelcontroles geslaagd',`${s.integrity.passed}/${s.integrity.images}`]];
  $('#kpis').innerHTML=k.map(([l,v])=>`<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
  $('#steps').innerHTML=s.steps.map(r=>`<tr><td>${esc(r.step)}</td><td>${r.n}</td><td>${(r.avg_ms/1000).toFixed(1)} s</td><td>${r.errors}</td><td>$${r.cost.toFixed(4)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nog geen data.</td></tr>';

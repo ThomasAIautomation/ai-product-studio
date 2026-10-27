@@ -75,7 +75,7 @@ def process(p: dict) -> None:
 
     if p["analysis_json"]:
         pass  # analyse al gelukt bij eerdere poging
-    elif not config.ANTHROPIC_API_KEY:
+    elif not config.vision_enabled():
         db.insert("events", product_id=pid, step="ai_analyse", status="skipped", attempt=attempt,
                   started_at=time.time(), ended_at=time.time(), duration_ms=0,
                   message="AI uitgeschakeld (geen API-sleutel): vul teksten handmatig in.")

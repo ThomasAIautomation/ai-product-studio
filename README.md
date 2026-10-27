@@ -112,7 +112,15 @@ Getest met fictieve, gegenereerde testfoto's (`scripts/make_test_photo.py`). Ech
 - End-to-end: fictieve testtas → beeldbewerking (pixelcontrole geslaagd) → teksten handmatig ingevuld (nog geen Anthropic-sleutel) → goedgekeurd → backend zet de foto in Shopify's staged storage → n8n `productCreate` + prijs → **product 15921813815636 als DRAFT** met afbeelding (READY), prijs €49,95, tags en SEO. Doorlooptijd van upload tot Shopify: ±15 s.
 - In n8n-modus zonder publieke backend uploadt de backend de foto's zelf naar Shopify (staged upload) en geeft hij alleen de `resourceUrl` door aan n8n.
 
+### Live test 2: AI-analyse via n8n Gateway credits
+
+- Analyse loopt via de n8n-workflow "AI Product Studio – Productanalyse (vision, Gateway credits)" (`VISION_PROVIDER=n8n`). Model: `gpt-6-luna` met de door n8n beheerde OpenAI-koppeling. Er is geen eigen API-sleutel nodig en het verbruik gaat van de n8n Gateway credits af.
+- De studio voegt alle foto's van een product samen tot één genummerd overzichtsbeeld ("Foto 1..n") en stuurt de prompt mee. Zo blijven de regels in `app/vision.py` de enige bron. Het antwoord wordt gecontroleerd op alle verplichte velden; een ongeldig antwoord telt als tijdelijke fout en wordt opnieuw geprobeerd.
+- Resultaat met een fictieve testtas: kleur, vorm en hengsel met hoge zekerheid en bewijs. Kras en vlek gemeld met locatie, maar expliciet "niet vast te stellen of dit beschadiging is". Materiaal, merk en echtheid onder "Niet vast te stellen". Een waarschuwing dat de foto bewerkt oogt (klopt: getekende testfoto). Ongeveer 7.100 tokens en 16 s per analyse.
+- Goedgekeurd → **product 15921852711252 als DRAFT** in Shopify, met de AI-teksten, tags (inclusief `staat: onbekend`) en prijs.
+- Gevonden en opgelost: bij deze foto kwam een stukje achtergrond mee in de uitsnede. Het systeem gaf een waarschuwing, maar goedkeuren kon toch. Nu blokkeert goedkeuren bij een uitsnede-waarschuwing, totdat je de uitsnede corrigeert (penseel), de originele foto kiest of expliciet bevestigt. Het al aangemaakte testconcept bevat dat stukje nog wel.
+
 ## Openstaand
 
-1. **Anthropic API-sleutel** (`ANTHROPIC_API_KEY`) voor de AI-analyse met Haiku 5.5; akkoord op Haiku is gegeven.
+1. Optioneel: Claude als alternatief analysemodel (`VISION_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).
 2. Aanbevolen: het Shopify client secret en de n8n API-sleutel roteren, want beide zijn in de chat gedeeld.

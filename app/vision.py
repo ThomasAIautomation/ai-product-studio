@@ -102,8 +102,77 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     return round(input_tokens / 1e6 * pin + output_tokens / 1e6 * pout, 6)
 
 
+class TransientVisionError(RuntimeError):
+    pass
+
+
+def contact_sheet(photo_paths: list[Path], max_side: int = 2048) -> bytes:
+    """Alle foto's van één product samen in één genummerd overzichtsbeeld (alleen voor de analyse)."""
+    from PIL import ImageDraw
+    imgs = [Image.open(p).convert("RGB") for p in photo_paths[:6]]
+    cols = 1 if len(imgs) == 1 else 2
+    rows = (len(imgs) + cols - 1) // cols
+    cell = max_side // cols
+    sheet = Image.new("RGB", (cell * cols, cell * rows), "white")
+    draw = ImageDraw.Draw(sheet)
+    for i, im in enumerate(imgs):
+        im.thumbnail((cell - 8, cell - 48))
+        x, y = (i % cols) * cell, (i // cols) * cell
+        sheet.paste(im, (x + (cell - im.width) // 2, y + 44))
+        draw.rectangle((x + 4, y + 4, x + 150, y + 40), fill="black")
+        draw.text((x + 14, y + 10), f"Foto {i + 1}", fill="white", font_size=24)
+    buf = io.BytesIO()
+    sheet.save(buf, "JPEG", quality=90)
+    return buf.getvalue()
+
+
+def _parse_json(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    start, end = text.find("{"), text.rfind("}")
+    data = json.loads(text[start:end + 1])
+    missing = [k for k in SCHEMA["required"] if k not in data]
+    if missing:
+        raise ValueError(f"AI-antwoord mist velden: {missing}")
+    data.setdefault("staat", {}).setdefault("zichtbare_gebreken", [])
+    return data
+
+
+def analyze_via_n8n(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict]:
+    import httpx
+    n = min(len(photo_paths), 6)
+    prompt = (SYSTEM + f"\n\nJe krijgt één overzichtsafbeelding met {n} genummerde foto's (Foto 1..{n}) van hetzelfde product."
+              + "\nAntwoord UITSLUITEND met één JSON-object (geen uitleg, geen markdown) dat voldoet aan dit JSON-schema:\n"
+              + json.dumps(SCHEMA, ensure_ascii=False)
+              + (f"\nExtra info van de verkoper (niet geverifieerd): {hint}" if hint else ""))
+    try:
+        r = httpx.post(config.N8N_ANALYZE_WEBHOOK_URL, data={"prompt": prompt},
+                       files={"image": ("product.jpg", contact_sheet(photo_paths), "image/jpeg")},
+                       headers={"X-Studio-Secret": config.N8N_WEBHOOK_SECRET}, timeout=180)
+    except httpx.TransportError as e:
+        raise TransientVisionError(f"n8n onbereikbaar: {e}") from e
+    if r.status_code >= 500 or r.status_code == 429:
+        raise TransientVisionError(f"n8n-analyse {r.status_code}: {r.text[:200]}")
+    if r.status_code >= 300:
+        raise RuntimeError(f"n8n-analyse {r.status_code}: {r.text[:300]}")
+    body = r.json()
+    try:
+        data = _parse_json(body.get("text") or "")
+    except (ValueError, json.JSONDecodeError) as e:
+        raise TransientVisionError(f"Ongeldig AI-antwoord, opnieuw proberen: {e}") from e
+    usage = body.get("usage") or {}
+    return data, {"model": f"{body.get('model', 'gpt-6-luna')} (n8n Gateway)",
+                  "input_tokens": usage.get("input_tokens", 0), "output_tokens": usage.get("output_tokens", 0),
+                  "cost_usd": None}
+
+
 def analyze(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict]:
-    """Retourneert (analyse, usage). Gooit anthropic-fouten door; worker bepaalt of retry zinvol is."""
+    """Retourneert (analyse, usage). Gooit fouten door; worker bepaalt of retry zinvol is."""
+    if config.VISION_PROVIDER == "n8n":
+        if not config.N8N_ANALYZE_WEBHOOK_URL:
+            raise VisionNotConfigured("N8N_ANALYZE_WEBHOOK_URL ontbreekt — AI-analyse staat uit.")
+        return analyze_via_n8n(photo_paths, hint)
     if not config.ANTHROPIC_API_KEY:
         raise VisionNotConfigured("ANTHROPIC_API_KEY ontbreekt — AI-analyse staat uit.")
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=0, timeout=180)
@@ -140,7 +209,7 @@ def analyze(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict]:
 
 
 def is_transient(exc: Exception) -> bool:
-    return isinstance(exc, (anthropic.RateLimitError, anthropic.APIConnectionError,
+    return isinstance(exc, (TransientVisionError, anthropic.RateLimitError, anthropic.APIConnectionError,
                             anthropic.InternalServerError, anthropic.APITimeoutError)) or (
         isinstance(exc, anthropic.APIStatusError) and exc.status_code in (408, 409, 429, 529)
     )

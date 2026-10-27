@@ -34,6 +34,13 @@ for d in (UPLOAD_DIR, OUTPUT_DIR, SCENE_DIR):
 
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY")
 VISION_MODEL = env("VISION_MODEL", "claude-opus-5-5")
+# "n8n" = analyse via n8n-workflow (OpenAI-model op n8n Gateway credits), "anthropic" = direct via Claude API
+VISION_PROVIDER = env("VISION_PROVIDER", "anthropic")
+N8N_ANALYZE_WEBHOOK_URL = env("N8N_ANALYZE_WEBHOOK_URL")
+
+
+def vision_enabled() -> bool:
+    return bool(N8N_ANALYZE_WEBHOOK_URL) if VISION_PROVIDER == "n8n" else bool(ANTHROPIC_API_KEY)
 
 SHOPIFY_SHOP = env("SHOPIFY_SHOP", "ai-bag-studio.myshopify.com")
 SHOPIFY_CLIENT_ID = env("SHOPIFY_CLIENT_ID")
@@ -61,8 +68,8 @@ MODEL_PRICES = {
 def status() -> dict:
     """Welke koppelingen geconfigureerd zijn (zonder waarden te tonen)."""
     return {
-        "vision": bool(ANTHROPIC_API_KEY),
-        "vision_model": VISION_MODEL,
+        "vision": vision_enabled(),
+        "vision_model": "gpt-6-luna via n8n" if VISION_PROVIDER == "n8n" else VISION_MODEL,
         "shopify": bool(SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET),
         "shopify_shop": SHOPIFY_SHOP,
         "publish_via": PUBLISH_VIA,

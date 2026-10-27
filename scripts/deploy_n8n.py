@@ -76,6 +76,8 @@ def main() -> None:
                                    {"name": "X-Studio-Secret", "value": webhook_secret}),
     }
     pub = workflow("publish_to_shopify.json", subs)
+    ana = workflow("analyze_vision.json", subs)
+    print(f"Workflow aangemaakt en actief: {ana['name']} ({ana['id']})")
     print(f"Workflow aangemaakt en actief: {pub['name']} ({pub['id']})")
     if config.PUBLIC_BASE_URL and config.DASHBOARD_PASSWORD:
         subs["CRED_DASHBOARD"] = credential("AI Studio – dashboard login", "httpBasicAuth",
@@ -85,6 +87,7 @@ def main() -> None:
     else:
         print("Retry-workflow overgeslagen: PUBLIC_BASE_URL en DASHBOARD_PASSWORD zijn daarvoor nodig.")
     set_env({"N8N_PUBLISH_WEBHOOK_URL": f"{N8N_URL}/webhook/ai-product-studio/publish",
+             "N8N_ANALYZE_WEBHOOK_URL": f"{N8N_URL}/webhook/ai-product-studio/analyze", "VISION_PROVIDER": "n8n",
              "N8N_WEBHOOK_SECRET": webhook_secret})
     print(".env bijgewerkt met de webhook-URL en het webhook-secret.")
 

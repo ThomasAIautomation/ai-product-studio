@@ -1,0 +1,36 @@
+{
+  "name": "AI Product Studio – Productanalyse (vision, Gateway credits)",
+  "nodes": [
+    {
+      "id": "v1", "name": "Webhook: foto's + prompt", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [0, 0],
+      "parameters": {"httpMethod": "POST", "path": "ai-product-studio/analyze", "authentication": "headerAuth", "responseMode": "responseNode", "options": {"binaryPropertyName": "image"}},
+      "credentials": {"httpHeaderAuth": {"id": "{{CRED_WEBHOOK}}", "name": "AI Studio – webhook secret"}}
+    },
+    {
+      "id": "v2", "name": "Vision-model", "type": "@n8n/n8n-nodes-langchain.openAi", "typeVersion": 2.3, "position": [260, 0],
+      "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 3000,
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-6-luna", "mode": "list", "cachedResultName": "GPT-6-LUNA"},
+        "responses": {"values": [
+          {"content": "={{ $json.body.prompt }}"},
+          {"type": "image", "imageType": "base64", "binaryPropertyName": "image0"}
+        ]},
+        "simplify": false, "builtInTools": {}, "options": {}
+      },
+      "credentials": {"openAiApi": {"id": null, "name": "", "__aiGatewayManaged": true}}
+    },
+    {
+      "id": "v3", "name": "Antwoord: analyse", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1, "position": [520, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ model: $json.model, text: ($json.output || []).filter(o => o.type === 'message').flatMap(o => o.content || []).map(c => c.text || '').join(''), usage: $json.usage }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: foto's + prompt": {"main": [[{"node": "Vision-model", "type": "main", "index": 0}]]},
+    "Vision-model": {"main": [[{"node": "Antwoord: analyse", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "none"}
+}
