@@ -106,9 +106,12 @@ def publish(p: dict) -> None:
              for im in full["images"]]
     with Step(pid, "shopify_publicatie", attempt) as step:
         if config.PUBLISH_VIA == "n8n":
-            if not config.PUBLIC_BASE_URL:
-                raise ValueError("PUBLIC_BASE_URL is nodig zodat Shopify de afbeeldingen kan ophalen.")
-            urls = [f"{config.PUBLIC_BASE_URL}/files/{p_.relative_to(config.DATA_DIR)}" for p_ in paths]
+            if config.PUBLIC_BASE_URL:
+                urls = [f"{config.PUBLIC_BASE_URL}/files/{p_.relative_to(config.DATA_DIR)}" for p_ in paths]
+            else:
+                # Backend niet publiek: beelden rechtstreeks in Shopify's staged storage zetten;
+                # n8n maakt daarna het concept aan met die resourceUrls.
+                urls = shopify.upload_images(paths)
             res = shopify.publish_via_n8n(full, urls)
         else:
             res = shopify.create_draft_product(full, paths)

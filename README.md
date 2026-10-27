@@ -105,9 +105,14 @@ Daarnaast is de volledige UI-flow in Chromium (Playwright) doorlopen: uploaden v
 
 Getest met fictieve, gegenereerde testfoto's (`scripts/make_test_photo.py`). Echte productfoto's met een echte Claude-sleutel en een echte Shopify-store zijn nog niet getest; zie "Openstaand".
 
-## Openstaand (vereist actie van de eigenaar)
+## Live test (27-10-2026)
 
-1. **Shopify-client-secret roteren**: het secret is in een screenshot gedeeld. Rotate het in het Dev Dashboard en zet het nieuwe secret alleen in `.env` en in de n8n-credential.
-2. **Netwerktoegang** van de cloudomgeving tot `ai-bag-studio.myshopify.com` en `supplierresponse.app.n8n.cloud`, of de studio lokaal draaien.
-3. **Anthropic API-sleutel** plus toestemming voor de AI-kosten.
-4. **n8n API-sleutel**, zodat `deploy_n8n.py` de workflows kan aanmaken.
+- Shopify-verbinding: verbonden met "AI Bag Studio" (development store), Admin API `2026-10`, token via client credentials.
+- n8n: workflow "AI Product Studio – Publiceer concept naar Shopify" via de API aangemaakt en geactiveerd, met de credentials "AI Studio – Shopify client credentials" en "AI Studio – webhook secret". De bestaande workflow "Shopify DRAFT gateway" is niet aangeraakt.
+- End-to-end: fictieve testtas → beeldbewerking (pixelcontrole geslaagd) → teksten handmatig ingevuld (nog geen Anthropic-sleutel) → goedgekeurd → backend zet de foto in Shopify's staged storage → n8n `productCreate` + prijs → **product 15921813815636 als DRAFT** met afbeelding (READY), prijs €49,95, tags en SEO. Doorlooptijd van upload tot Shopify: ±15 s.
+- In n8n-modus zonder publieke backend uploadt de backend de foto's zelf naar Shopify (staged upload) en geeft hij alleen de `resourceUrl` door aan n8n.
+
+## Openstaand
+
+1. **Anthropic API-sleutel** (`ANTHROPIC_API_KEY`) voor de AI-analyse met Haiku 5.5; akkoord op Haiku is gegeven.
+2. Aanbevolen: het Shopify client secret en de n8n API-sleutel roteren, want beide zijn in de chat gedeeld.

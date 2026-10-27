@@ -70,7 +70,7 @@ def main() -> None:
         "SHOP": config.SHOPIFY_SHOP, "STORE": config.SHOPIFY_SHOP.split(".")[0],
         "API_VERSION": config.SHOPIFY_API_VERSION, "PUBLIC_BASE_URL": config.PUBLIC_BASE_URL,
         "CRED_SHOPIFY": credential("AI Studio – Shopify client credentials", "httpCustomAuth", {"json": json.dumps(
-            {"body": {"grant_type": "client_credentials", "client_id": config.SHOPIFY_CLIENT_ID,
+            {"body": {"client_id": config.SHOPIFY_CLIENT_ID,
                       "client_secret": config.SHOPIFY_CLIENT_SECRET}})}),
         "CRED_WEBHOOK": credential("AI Studio – webhook secret", "httpHeaderAuth",
                                    {"name": "X-Studio-Secret", "value": webhook_secret}),

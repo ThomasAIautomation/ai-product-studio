@@ -2,78 +2,262 @@
   "name": "AI Product Studio – Publiceer concept naar Shopify",
   "nodes": [
     {
-      "id": "a1", "name": "Webhook: goedgekeurd product", "type": "n8n-nodes-base.webhook", "typeVersion": 2,
-      "position": [0, 300],
-      "parameters": {"httpMethod": "POST", "path": "ai-product-studio/publish", "authentication": "headerAuth", "responseMode": "responseNode", "options": {}},
-      "credentials": {"httpHeaderAuth": {"id": "{{CRED_WEBHOOK}}", "name": "AI Studio – webhook secret"}}
-    },
-    {
-      "id": "a2", "name": "Shopify token (client credentials)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2,
-      "position": [240, 300], "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 2000,
+      "id": "a1",
+      "name": "Webhook: goedgekeurd product",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
       "parameters": {
-        "method": "POST", "url": "https://{{SHOP}}/admin/oauth/access_token",
-        "authentication": "genericCredentialType", "genericAuthType": "httpCustomAuth",
-        "sendBody": true, "contentType": "json", "specifyBody": "json", "jsonBody": "{}", "options": {}
+        "httpMethod": "POST",
+        "path": "ai-product-studio/publish",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
       },
-      "credentials": {"httpCustomAuth": {"id": "{{CRED_SHOPIFY}}", "name": "AI Studio – Shopify client credentials"}}
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{CRED_WEBHOOK}}",
+          "name": "AI Studio – webhook secret"
+        }
+      }
     },
     {
-      "id": "a3", "name": "productCreate (DRAFT + media)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2,
-      "position": [480, 300], "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 3000,
+      "id": "a2",
+      "name": "Shopify token (client credentials)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
       "parameters": {
-        "method": "POST", "url": "https://{{SHOP}}/admin/api/{{API_VERSION}}/graphql.json",
+        "method": "POST",
+        "url": "https://{{SHOP}}/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "{{CRED_SHOPIFY}}",
+          "name": "AI Studio – Shopify client credentials"
+        }
+      }
+    },
+    {
+      "id": "a3",
+      "name": "productCreate (DRAFT + media)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://{{SHOP}}/admin/api/{{API_VERSION}}/graphql.json",
         "sendHeaders": true,
-        "headerParameters": {"parameters": [{"name": "X-Shopify-Access-Token", "value": "={{ $json.access_token }}"}]},
-        "sendBody": true, "contentType": "json", "specifyBody": "json",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: 'mutation create($product: ProductCreateInput!, $media: [CreateMediaInput!]) { productCreate(product: $product, media: $media) { product { id handle status variants(first: 1) { nodes { id } } } userErrors { field message } } }', variables: { product: Object.assign({}, $('Webhook: goedgekeurd product').item.json.body.product, { status: 'DRAFT' }), media: ($('Webhook: goedgekeurd product').item.json.body.images || []).map(i => ({ originalSource: i.url, mediaContentType: 'IMAGE', alt: i.alt })) } }) }}",
         "options": {}
       }
     },
     {
-      "id": "a4", "name": "Gelukt?", "type": "n8n-nodes-base.if", "typeVersion": 2,
-      "position": [720, 300],
+      "id": "a4",
+      "name": "Gelukt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
       "parameters": {
         "conditions": {
-          "options": {"caseSensitive": true, "typeValidation": "loose"},
-          "conditions": [{"id": "c1", "leftValue": "={{ ($json.errors || []).length + ($json.data.productCreate.userErrors || []).length }}", "rightValue": 0, "operator": {"type": "number", "operation": "equals"}}],
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ ($json.errors || []).length + ($json.data.productCreate.userErrors || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
       }
     },
     {
-      "id": "a5", "name": "Prijs zetten (optioneel)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2,
-      "position": [960, 200], "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 2000, "alwaysOutputData": true,
+      "id": "a5",
+      "name": "Prijs zetten (optioneel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
       "parameters": {
-        "method": "POST", "url": "https://{{SHOP}}/admin/api/{{API_VERSION}}/graphql.json",
+        "method": "POST",
+        "url": "https://{{SHOP}}/admin/api/{{API_VERSION}}/graphql.json",
         "sendHeaders": true,
-        "headerParameters": {"parameters": [{"name": "X-Shopify-Access-Token", "value": "={{ $('Shopify token (client credentials)').item.json.access_token }}"}]},
-        "sendBody": true, "contentType": "json", "specifyBody": "json",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Shopify token (client credentials)').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: 'mutation price($productId: ID!, $variants: [ProductVariantsBulkInput!]!) { productVariantsBulkUpdate(productId: $productId, variants: $variants) { userErrors { field message } } }', variables: { productId: $json.data.productCreate.product.id, variants: [{ id: $json.data.productCreate.product.variants.nodes[0].id, price: String($('Webhook: goedgekeurd product').item.json.body.price || '0.00') }] } }) }}",
         "options": {}
       }
     },
     {
-      "id": "a6", "name": "Antwoord: concept aangemaakt", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1,
-      "position": [1200, 200],
+      "id": "a6",
+      "name": "Antwoord: concept aangemaakt",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        200
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { id: $('productCreate (DRAFT + media)').item.json.data.productCreate.product.id, status: $('productCreate (DRAFT + media)').item.json.data.productCreate.product.status, admin_url: 'https://admin.shopify.com/store/{{STORE}}/products/' + $('productCreate (DRAFT + media)').item.json.data.productCreate.product.id.split('/').pop() } }}",
-        "options": {"responseCode": 200}
+        "options": {
+          "responseCode": 200
+        }
       }
     },
     {
-      "id": "a7", "name": "Antwoord: fout", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1,
-      "position": [960, 420],
-      "parameters": {"respondWith": "json", "responseBody": "={{ { error: $json.errors || $json.data.productCreate.userErrors } }}", "options": {"responseCode": 422}}
+      "id": "a7",
+      "name": "Antwoord: fout",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        420
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: $json.errors || $json.data.productCreate.userErrors } }}",
+        "options": {
+          "responseCode": 422
+        }
+      }
     }
   ],
   "connections": {
-    "Webhook: goedgekeurd product": {"main": [[{"node": "Shopify token (client credentials)", "type": "main", "index": 0}]]},
-    "Shopify token (client credentials)": {"main": [[{"node": "productCreate (DRAFT + media)", "type": "main", "index": 0}]]},
-    "productCreate (DRAFT + media)": {"main": [[{"node": "Gelukt?", "type": "main", "index": 0}]]},
-    "Gelukt?": {"main": [[{"node": "Prijs zetten (optioneel)", "type": "main", "index": 0}], [{"node": "Antwoord: fout", "type": "main", "index": 0}]]},
-    "Prijs zetten (optioneel)": {"main": [[{"node": "Antwoord: concept aangemaakt", "type": "main", "index": 0}]]}
+    "Webhook: goedgekeurd product": {
+      "main": [
+        [
+          {
+            "node": "Shopify token (client credentials)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify token (client credentials)": {
+      "main": [
+        [
+          {
+            "node": "productCreate (DRAFT + media)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "productCreate (DRAFT + media)": {
+      "main": [
+        [
+          {
+            "node": "Gelukt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gelukt?": {
+      "main": [
+        [
+          {
+            "node": "Prijs zetten (optioneel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwoord: fout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prijs zetten (optioneel)": {
+      "main": [
+        [
+          {
+            "node": "Antwoord: concept aangemaakt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": {"executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "none"}
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  }
 }
