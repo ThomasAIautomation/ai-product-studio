@@ -1,0 +1,14 @@
+{
+  "name": "AI Product Studio – Mislukte jobs opnieuw inplannen",
+  "nodes": [
+    {"id": "b1", "name": "Elk uur", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [0, 0],
+     "parameters": {"rule": {"interval": [{"field": "hours", "hoursInterval": 1}]}}},
+    {"id": "b2", "name": "POST /api/retry-failed", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [240, 0],
+     "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 5000,
+     "parameters": {"method": "POST", "url": "{{PUBLIC_BASE_URL}}/api/retry-failed", "authentication": "genericCredentialType",
+                    "genericAuthType": "httpBasicAuth", "options": {}},
+     "credentials": {"httpBasicAuth": {"id": "{{CRED_DASHBOARD}}", "name": "AI Studio – dashboard login"}}}
+  ],
+  "connections": {"Elk uur": {"main": [[{"node": "POST /api/retry-failed", "type": "main", "index": 0}]]}},
+  "settings": {"executionOrder": "v1"}
+}

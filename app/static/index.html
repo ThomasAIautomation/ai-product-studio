@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Product Studio</title>
+<style>
+:root{--bg:#f6f5f2;--panel:#fff;--ink:#1d1c1a;--muted:#6d6a64;--line:#e4e1db;--accent:#2f5d50;--accent-ink:#fff;
+--ok:#2e7d4f;--warn:#a86a00;--err:#b3261e;--chip:#efece6}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--panel:#201f1d;--ink:#eeebe5;--muted:#a09c94;--line:#33312d;
+--accent:#7fbfa9;--accent-ink:#10201b;--chip:#2a2926}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:24px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.01em}
+nav{display:flex;gap:4px}nav button{background:none;border:0;padding:8px 12px;border-radius:8px;color:var(--muted);font:inherit;cursor:pointer}
+nav button.on{background:var(--chip);color:var(--ink);font-weight:600}
+#cfg{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.pill.ok{color:var(--ok)}.pill.off{color:var(--err)}
+main{max-width:1240px;margin:0 auto;padding:24px 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+.grid{display:grid;gap:16px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:40px;text-align:center;cursor:pointer;color:var(--muted)}
+.drop.hover{border-color:var(--accent);color:var(--ink)}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.thumbs img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+input,select,textarea{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+textarea{min-height:140px;font-family:ui-monospace,monospace;font-size:13px}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;padding:9px 16px;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn.ghost{background:var(--chip);color:var(--ink)}.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse}td,th{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+tr.click{cursor:pointer}tr.click:hover{background:var(--chip)}
+td img{width:52px;height:52px;object-fit:cover;border-radius:6px;background:var(--chip)}
+.st{font-size:12px;font-weight:600;padding:3px 8px;border-radius:99px;background:var(--chip);white-space:nowrap}
+.st.review{color:var(--warn)}.st.published{color:var(--ok)}.st.failed,.st.publish_failed{color:var(--err)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi .v{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}.kpi .l{font-size:13px;color:var(--muted)}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cmp figure{margin:0}.cmp img{width:100%;border-radius:8px;border:1px solid var(--line);background:repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/16px 16px}
+figcaption{font-size:12px;color:var(--muted);margin-top:4px}
+.two{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px}
+@media (max-width:860px){.two,.cmp{grid-template-columns:1fr}header{flex-wrap:wrap}}
+.attr{font-size:13px;border-bottom:1px solid var(--line);padding:6px 0}.attr b{font-weight:600}
+.conf{font-size:11px;padding:1px 6px;border-radius:99px;background:var(--chip);margin-left:6px}
+.conf.laag{color:var(--err)}.conf.middel{color:var(--warn)}.conf.hoog{color:var(--ok)}
+.note{font-size:13px;padding:10px 12px;border-radius:8px;background:var(--chip);margin:8px 0}
+.note.err{color:var(--err)}.muted{color:var(--muted)}
+.hidden{display:none}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px;margin:18px 0 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Product Studio</h1>
+  <nav><button data-v="upload" class="on">Uploaden</button><button data-v="list">Producten</button><button data-v="monitor">Monitor</button></nav>
+  <div id="cfg"></div>
+</header>
+<main>
+<section id="v-upload" class="grid">
+  <div class="card">
+    <h2>Productfoto's uploaden</h2>
+    <div class="drop" id="drop">Sleep foto's hierheen of klik om te kiezen (JPG, PNG, WebP)</div>
+    <input type="file" id="file" multiple accept="image/jpeg,image/png,image/webp" class="hidden">
+    <div class="thumbs" id="preview"></div>
+    <div class="row" style="margin-top:8px">
+      <div style="flex:1;min-width:200px"><label>Groeperen</label>
+        <select id="grouping"><option value="per_foto">Elke foto = apart product (batch)</option><option value="een_product">Alle foto's = één product</option></select></div>
+      <div style="flex:1;min-width:200px"><label>Fotostijl</label>
+        <select id="style"><option value="studio">Studio (zachte achtergrond + schaduw)</option><option value="wit">Witte achtergrond (marketplace)</option><option value="scene">Sfeer-/modelfoto (eigen scène)</option></select></div>
+    </div>
+    <div class="row" style="margin-top:16px"><button class="btn" id="go" disabled>Verwerken</button><span id="upmsg" class="muted"></span></div>
+  </div>
+  <div class="card" id="scenecard">
+    <h2>Scène voor stijl "Sfeer-/modelfoto"</h2>
+    <p class="muted" style="margin-top:0">Upload een foto van een model of omgeving. De tas wordt er op ware grootte in geplaatst; de tas-pixels worden niet aangepast. Klik in de foto waar het hengsel moet komen (bijv. de hand).</p>
+    <input type="file" id="scenefile" accept="image/jpeg,image/png,image/webp">
+    <div style="position:relative;display:inline-block;margin-top:10px"><img id="sceneimg" style="max-width:100%;max-height:320px;border-radius:8px;display:none;cursor:crosshair"><div id="dot" style="position:absolute;width:14px;height:14px;border-radius:50%;background:#e33;border:2px solid #fff;display:none;transform:translate(-50%,-50%)"></div></div>
+    <div class="row" style="margin-top:8px"><button class="btn ghost" id="scenesave" disabled>Scène opslaan</button><span id="scenemsg" class="muted"></span></div>
+  </div>
+</section>
+
+<section id="v-list" class="hidden">
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">Producten</h2>
+      <div class="row"><select id="filter" style="width:auto"><option value="">Alle statussen</option></select>
+      <button class="btn ghost" id="retryall">Mislukte opnieuw proberen</button></div></div>
+    <table><thead><tr><th></th><th>#</th><th>Titel</th><th>Status</th><th>Foto's</th><th>Bijgewerkt</th></tr></thead><tbody id="rows"></tbody></table>
+  </div>
+</section>
+
+<section id="v-edit" class="hidden"></section>
+
+<section id="v-monitor" class="hidden grid">
+  <div class="kpis" id="kpis"></div>
+  <div class="card"><h2>Stappen</h2><table><thead><tr><th>Stap</th><th>Aantal</th><th>Gem. duur</th><th>Fouten</th><th>Kosten</th></tr></thead><tbody id="steps"></tbody></table></div>
+  <div class="card"><h2>Recente fouten</h2><table><thead><tr><th>Product</th><th>Stap</th><th>Poging</th><th>Melding</th><th>Tijd</th></tr></thead><tbody id="errs"></tbody></table></div>
+</section>
+</main>
+
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const LABEL={queued:'In wachtrij',uploading:'Uploaden',processing:'Verwerken',retry_wait:'Opnieuw proberen',review:'Te controleren',failed:'Mislukt',
+publish_queued:'Publicatie gepland',publishing:'Publiceren',publish_retry:'Publicatie opnieuw',publish_failed:'Publicatie mislukt',published:'Concept in Shopify'};
+const api=async(u,o={})=>{const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j};
+const ago=t=>t?new Date(t*1000).toLocaleString('nl-NL',{dateStyle:'short',timeStyle:'short'}):'';
+const secs=s=>s==null?'–':s<90?`${s.toFixed(1)} s`:`${(s/60).toFixed(1)} min`;
+let view='upload', current=null, files=[];
+
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.v));
+function show(v){view=v;document.querySelectorAll('main>section').forEach(s=>s.classList.toggle('hidden',s.id!=='v-'+v));
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v||(v==='edit'&&b.dataset.v==='list')));refresh()}
+
+async function loadCfg(){const c=await api('/api/config');
+ $('#cfg').innerHTML=`<span class="pill ${c.vision?'ok':'off'}">AI: ${c.vision?esc(c.vision_model):'uit'}</span>
+ <span class="pill ${c.shopify||c.n8n?'ok':'off'}">Shopify: ${c.shopify||c.n8n?esc(c.shopify_shop)+' via '+esc(c.publish_via):'niet gekoppeld'}</span>
+ <span class="pill ${c.scenes.length?'ok':''}">Scène: ${c.scenes.length?'ingesteld':'geen'}</span>`}
+
+// Upload
+const drop=$('#drop'), fi=$('#file');
+drop.onclick=()=>fi.click();
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('hover')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('hover')}));
+drop.addEventListener('drop',ev=>setFiles([...ev.dataTransfer.files]));
+fi.onchange=()=>setFiles([...fi.files]);
+function setFiles(f){files=f.filter(x=>/image\/(jpeg|png|webp)/.test(x.type));
+ $('#preview').innerHTML='';files.forEach(x=>{const i=new Image();i.src=URL.createObjectURL(x);$('#preview').append(i)});
+ $('#go').disabled=!files.length;$('#upmsg').textContent=files.length?`${files.length} foto('s) geselecteerd`:''}
+$('#go').onclick=async()=>{const fd=new FormData();files.forEach(f=>fd.append('files',f));fd.append('grouping',$('#grouping').value);fd.append('style',$('#style').value);
+ $('#go').disabled=true;$('#upmsg').textContent='Uploaden…';
+ try{const r=await api('/api/batches',{method:'POST',body:fd});$('#upmsg').textContent=`${r.product_ids.length} product(en) in de wachtrij gezet.`;setFiles([]);setTimeout(()=>show('list'),700)}
+ catch(e){$('#upmsg').textContent='Fout: '+e.message;$('#go').disabled=false}};
+
+// Scene
+let anchor=null;
+$('#scenefile').onchange=()=>{const f=$('#scenefile').files[0];if(!f)return;$('#sceneimg').src=URL.createObjectURL(f);$('#sceneimg').style.display='block';$('#scenesave').disabled=false};
+$('#sceneimg').onclick=e=>{const r=e.target.getBoundingClientRect();anchor=[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height];
+ const d=$('#dot');d.style.display='block';d.style.left=(e.clientX-r.left)+'px';d.style.top=(e.clientY-r.top)+'px'};
+$('#scenesave').onclick=async()=>{const fd=new FormData();fd.append('file',$('#scenefile').files[0]);const a=anchor||[.5,.3];fd.append('anchor_x',a[0]);fd.append('anchor_y',a[1]);
+ try{await api('/api/scenes',{method:'POST',body:fd});$('#scenemsg').textContent='Opgeslagen.';loadCfg()}catch(e){$('#scenemsg').textContent='Fout: '+e.message}};
+
+// List
+Object.entries(LABEL).forEach(([k,v])=>$('#filter').insertAdjacentHTML('beforeend',`<option value="${k}">${v}</option>`));
+$('#filter').onchange=refresh;
+$('#retryall').onclick=async()=>{const r=await api('/api/retry-failed',{method:'POST'});alert(`${r.requeued_processing+r.requeued_publishing} product(en) opnieuw ingepland`);refresh()};
+async function loadList(){const st=$('#filter').value;const rows=await api('/api/products'+(st?'?status='+st:''));
+ $('#rows').innerHTML=rows.map(r=>`<tr class="click" data-id="${r.id}"><td>${r.thumb_url?`<img src="${r.thumb_url}" loading="lazy">`:''}</td><td>${r.id}</td>
+ <td>${esc(r.title)||'<span class="muted">(nog geen titel)</span>'}${r.error?`<div class="muted" style="font-size:12px;color:var(--err)">${esc(r.error).slice(0,140)}</div>`:''}</td>
+ <td><span class="st ${r.status}">${LABEL[r.status]||r.status}</span></td><td>${r.n_images}</td><td class="muted">${ago(r.updated_at)}</td></tr>`).join('')
+ ||'<tr><td colspan="6" class="muted">Nog geen producten.</td></tr>';
+ document.querySelectorAll('#rows tr.click').forEach(tr=>tr.onclick=()=>openProduct(+tr.dataset.id))}
+
+// Editor
+async function openProduct(id){current=id;show('edit')}
+async function loadEdit(force){const p=await api('/api/products/'+current);
+ const el=$('#v-edit'); if(!force&&el.dataset.sig===p.status+p.updated_at)return; el.dataset.sig=p.status+p.updated_at;
+ const a=p.analysis, editable=!['publishing','published','processing'].includes(p.status);
+ el.innerHTML=`<div class="row" style="margin-bottom:12px"><button class="btn ghost" id="back">← Terug</button><h2 style="margin:0">Product #${p.id}</h2><span class="st ${p.status}">${LABEL[p.status]||p.status}</span>
+  ${p.shopify_admin_url?`<a href="${esc(p.shopify_admin_url)}" target="_blank" rel="noopener">Openen in Shopify ↗</a>`:''}</div>
+  ${p.error?`<div class="note err">${esc(p.error)}</div>`:''}
+  <div class="two"><div class="card"><h3 style="margin-top:0">Afbeeldingen</h3>
+   ${p.images.map(im=>`<div class="cmp" style="margin-bottom:14px"><figure><img src="${im.original_url}"><figcaption>Origineel ${im.position}</figcaption></figure>
+    <figure>${im.processed_url?`<img src="${im.processed_url}">`:'<div class="note">Nog niet bewerkt</div>'}<figcaption>
+    ${im.integrity?(im.integrity.passed?`✔ Pixelcontrole geslaagd: ${im.integrity.product_pixels.toLocaleString('nl-NL')} tas-pixels identiek, schaal 1:1`:`✖ Pixelcontrole mislukt`):''}
+    ${im.integrity&&im.integrity.completeness?(im.integrity.completeness.review_required?`<div class="note err">⚠ Uitsnede controleren: ${(im.integrity.completeness.possibly_missing_ratio*100).toFixed(1)}% mogelijk ontbrekend volgens controlemodel${im.integrity.completeness.islands_removed?`, ${im.integrity.completeness.islands_removed} losse fragment(en) verwijderd`:''}. Vergelijk goed met het origineel.</div>`:`<div>✔ Volledigheidscontrole: modellen ${(im.integrity.completeness.agreement_iou*100).toFixed(1)}% eens${im.integrity.completeness.holes_filled?`, ${im.integrity.completeness.holes_filled} gat(en)/beschadiging(en) behouden`:''}</div>`):''}
+    ${im.processed_url?`<label style="display:inline;margin-left:8px"><input type="checkbox" style="width:auto" data-img="${im.id}" ${im.use_processed?'checked':''} ${editable?'':'disabled'}> bewerkte versie gebruiken</label>`:''}
+    </figcaption></figure></div>`).join('')}
+   <p class="muted" style="font-size:12px">Controleer de uitsnede: valt een deel van de tas (hengsel, riem) weg, kies dan de originele foto.</p></div>
+  <div class="card">
+   ${a?`<h3 style="margin-top:0">Waargenomen kenmerken</h3>${a.waargenomen_kenmerken.map(k=>`<div class="attr"><b>${esc(k.kenmerk)}:</b> ${esc(k.waarde)}<span class="conf ${k.zekerheid}">${k.zekerheid}</span><div class="muted">${esc(k.bewijs)}</div></div>`).join('')}
+    <h3>Staat: ${esc(a.staat.beoordeling)}</h3>${a.staat.zichtbare_gebreken.map(g=>`<div class="attr">${esc(g.omschrijving)} <span class="muted">(${esc(g.locatie)}, foto ${g.foto})</span></div>`).join('')||'<div class="muted">Geen zichtbare gebreken gemeld.</div>'}
+    ${a.niet_vast_te_stellen.length?`<h3>Niet vast te stellen</h3><div class="note">${a.niet_vast_te_stellen.map(esc).join(' · ')}</div>`:''}
+    ${a.waarschuwingen.length?`<h3>Waarschuwingen</h3>${a.waarschuwingen.map(w=>`<div class="note err">${esc(w)}</div>`).join('')}`:''}`
+   :`<div class="note">Geen AI-analyse beschikbaar${p.status==='review'?' — vul de velden handmatig in.':'.'}</div>`}
+   <h3>Productgegevens</h3>
+   <label>Titel</label><input id="f-title" value="${esc(p.title)}">
+   <label>Beschrijving (HTML)</label><textarea id="f-description_html">${esc(p.description_html)}</textarea>
+   <div class="row"><div style="flex:1"><label>Producttype</label><input id="f-product_type" value="${esc(p.product_type)}"></div><div style="flex:1"><label>Categorie</label><input id="f-category" value="${esc(p.category)}"></div></div>
+   <label>Tags (komma-gescheiden)</label><input id="f-tags" value="${esc((p.tags||[]).join(', '))}">
+   <label>SEO-titel <span id="c1"></span></label><input id="f-seo_title" value="${esc(p.seo_title)}">
+   <label>SEO-beschrijving <span id="c2"></span></label><input id="f-seo_description" value="${esc(p.seo_description)}">
+   <div class="row"><div style="flex:1"><label>Handle</label><input id="f-handle" value="${esc(p.handle)}"></div><div style="flex:1"><label>Prijs (€, optioneel)</label><input id="f-price" value="${esc(p.price)}" inputmode="decimal"></div></div>
+   <div class="row" style="margin-top:16px">
+    <button class="btn ghost" id="save" ${editable?'':'disabled'}>Opslaan</button>
+    <button class="btn" id="approve" ${['review','publish_failed'].includes(p.status)?'':'disabled'}>Goedkeuren → concept in Shopify</button>
+    <button class="btn ghost" id="reanalyze" ${editable?'':'disabled'}>Opnieuw analyseren</button>
+    <button class="btn ghost" id="del" ${editable?'':'disabled'}>Verwijderen</button></div>
+   <div id="msg" class="muted" style="margin-top:8px"></div>
+  </div></div>
+  <div class="card" style="margin-top:16px"><h3 style="margin-top:0">Verwerkingslog</h3><table><thead><tr><th>Stap</th><th>Poging</th><th>Status</th><th>Duur</th><th>Kosten</th><th>Melding</th></tr></thead><tbody>
+  ${p.events.map(e=>`<tr><td>${esc(e.step)}</td><td>${e.attempt??''}</td><td>${esc(e.status)}</td><td>${(e.duration_ms/1000).toFixed(1)} s</td><td>${e.cost_usd!=null?'$'+e.cost_usd.toFixed(4):''}</td><td class="muted">${esc(e.message)}</td></tr>`).join('')}</tbody></table></div>`;
+ const cnt=()=>{$('#c1').textContent=`(${$('#f-seo_title').value.length}/60)`;$('#c2').textContent=`(${$('#f-seo_description').value.length}/155)`};cnt();
+ ['#f-seo_title','#f-seo_description'].forEach(s=>$(s).oninput=cnt);
+ $('#back').onclick=()=>show('list');
+ const save=async()=>{const body={};['title','description_html','product_type','category','seo_title','seo_description','handle','price'].forEach(k=>body[k]=$('#f-'+k).value);
+  body.tags=$('#f-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
+  body.image_choices=Object.fromEntries([...document.querySelectorAll('[data-img]')].map(c=>[c.dataset.img,c.checked]));
+  await api('/api/products/'+current,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})};
+ const act=async(fn,ok)=>{try{await fn();$('#msg').textContent=ok;loadEdit(true)}catch(e){$('#msg').textContent='Fout: '+e.message}};
+ $('#save').onclick=()=>act(save,'Opgeslagen.');
+ $('#approve').onclick=()=>act(async()=>{await save();await api(`/api/products/${current}/approve`,{method:'POST'})},'Wordt als concept naar Shopify gestuurd…');
+ $('#reanalyze').onclick=()=>act(()=>api(`/api/products/${current}/retry?reanalyze=true`,{method:'POST'}),'Opnieuw in de wachtrij.');
+ $('#del').onclick=()=>confirm('Product verwijderen uit de studio?')&&act(async()=>{await api('/api/products/'+current,{method:'DELETE'});show('list')},'Verwijderd.');
+}
+
+// Monitor
+async function loadMonitor(){const s=await api('/api/stats');const b=s.by_status;
+ const k=[['Totaal producten',s.total],['Te controleren',b.review||0],['Concept in Shopify',b.published||0],['Mislukt',(b.failed||0)+(b.publish_failed||0)],
+ ['In verwerking',(b.queued||0)+(b.processing||0)+(b.retry_wait||0)+(b.publish_queued||0)+(b.publishing||0)+(b.publish_retry||0)],
+ ['Gem. doorlooptijd → controle',secs(s.lead_time_s.avg_to_review)],['Gem. doorlooptijd → Shopify',secs(s.lead_time_s.avg_to_shopify)],
+ ['API-kosten totaal','$'+s.cost_usd.toFixed(4)],['Kosten per product','$'+s.cost_per_product_usd.toFixed(4)],
+ ['Pixelcontroles geslaagd',`${s.integrity.passed}/${s.integrity.images}`]];
+ $('#kpis').innerHTML=k.map(([l,v])=>`<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+ $('#steps').innerHTML=s.steps.map(r=>`<tr><td>${esc(r.step)}</td><td>${r.n}</td><td>${(r.avg_ms/1000).toFixed(1)} s</td><td>${r.errors}</td><td>$${r.cost.toFixed(4)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nog geen data.</td></tr>';
+ $('#errs').innerHTML=s.recent_errors.map(e=>`<tr class="click" onclick="openProduct(${e.product_id})"><td>#${e.product_id}</td><td>${esc(e.step)}</td><td>${e.attempt}</td><td>${esc(e.message)}</td><td class="muted">${ago(e.ended_at)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Geen fouten.</td></tr>'}
+
+async function refresh(){try{if(view==='list')await loadList();if(view==='edit')await loadEdit();if(view==='monitor')await loadMonitor()}catch(e){console.error(e)}}
+loadCfg();setInterval(refresh,3000);
+</script>
+</body>
+</html>
