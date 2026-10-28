@@ -119,7 +119,8 @@ def product_input(p: dict) -> dict:
 
 def create_draft_product(p: dict, image_paths: list[Path]) -> dict:
     sources = upload_images(image_paths) if image_paths else []
-    media = [{"originalSource": s, "mediaContentType": "IMAGE", "alt": p["title"]} for s in sources]
+    alts = p.get("_alts") or [p["title"]] * len(sources)
+    media = [{"originalSource": s, "mediaContentType": "IMAGE", "alt": a} for s, a in zip(sources, alts)]
     data = graphql(PRODUCT_CREATE, {"product": product_input(p), "media": media})["productCreate"]
     if data["userErrors"]:
         raise ShopifyError(f"productCreate: {data['userErrors']}")
@@ -140,7 +141,7 @@ def publish_via_n8n(p: dict, image_urls: list[str]) -> dict:
     if not config.N8N_PUBLISH_WEBHOOK_URL:
         raise ShopifyError("N8N_PUBLISH_WEBHOOK_URL ontbreekt.")
     payload = {"product": product_input(p), "price": p.get("price") or None,
-               "images": [{"url": u, "alt": p["title"]} for u in image_urls]}
+               "images": [{"url": u, "alt": a} for u, a in zip(image_urls, p.get("_alts") or [p["title"]] * len(image_urls))]}
     try:
         r = httpx.post(config.N8N_PUBLISH_WEBHOOK_URL, json=payload, timeout=120,
                        headers={"X-Studio-Secret": config.N8N_WEBHOOK_SECRET})

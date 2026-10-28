@@ -134,6 +134,22 @@ Nieuw: onder 80% overeenstemming tussen de modellen gebruikt het systeem automat
 
 **Fotorichtlijnen:** product helemaal in beeld, geen hand of standaard, neutrale ondergrond, minimaal 1000 px aan de korte zijde, één foto per zijde, plus close-ups van gebreken.
 
+### Sfeerbeelden (28-10-2026)
+
+**Aanpak:** de AI maakt een *lege* scène (n8n-workflow "Sfeerscène genereren", `gpt-image-1` op Gateway credits). De tas zit nooit in het generatieve model. Daarna:
+1. Het vision-model wijst de plaatsing aan (vrije plek op het tafelblad of de hand) en een referentiemaat in de scène: tafeldiameter 60 cm of schouderbreedte 42 cm.
+2. Met de tasafmetingen (dashboard: breedte × hoogte × diepte, cm) volgt de schaal. De **scène** wordt geschaald naar de tas; de tas blijft 1:1.
+3. Originele tas-pixels erin, plus contactschaduw, pixelcontrole en lossless opslag. Past de tas op ware grootte niet in het beeld, dan wordt het beeld geweigerd en niet afgesneden.
+4. Geen sfeerbeeld als de uitsnede onzeker is: dan eerst corrigeren met het penseel.
+5. In Shopify staan sfeerbeelden altijd ná de productfoto's, met alt-tekst "Sfeerbeeld (AI-omgeving, tas onbewerkt)".
+
+**Beperkingen, getest:**
+- Gateway credits ondersteunen geen beeldbewerking met masker ("Gateway credits don't currently support this operation"). Een model dat de tas écht vasthoudt (vingers om het hengsel) is daardoor niet mogelijk. Daarvoor is een eigen sleutel nodig (FLUX Fill/Kontext via fal.ai, of OpenAI met eigen tegoed). De preset "Model" blijft **experimenteel**: de tas hangt naast de hand.
+- Belichting en perspectief van de bronfoto blijven zichtbaar, omdat de tas niet wordt herbelicht. Een plat van bovenaf gefotografeerde tas oogt in een scène op tafelhoogte ingeplakt. Fotografeer voor sfeerbeelden rechtop, recht van voren en bij zacht daglicht.
+- Resolutie: de scène wordt naar de tas geschaald. Bij lage-resolutie bronfoto's wordt het sfeerbeeld dus ook klein (hier 971×647).
+
+Resultaat: `docs/sfeer-parijs-tote.png` (concept 15922834407764, 2 afbeeldingen) en `docs/sfeer-eerste-tests.png`.
+
 ## Openstaand
 
 1. Optioneel: Claude als alternatief analysemodel (`VISION_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).

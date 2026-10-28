@@ -168,7 +168,7 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
   ${p.shopify_admin_url?`<a href="${esc(p.shopify_admin_url)}" target="_blank" rel="noopener">Openen in Shopify ↗</a>`:''}</div>
   ${p.error?`<div class="note err">${esc(p.error)}</div>`:''}
   <div class="two"><div class="card"><h3 style="margin-top:0">Afbeeldingen</h3>
-   ${p.images.map(im=>`<div class="cmp" style="margin-bottom:14px"><figure><img src="${im.original_url}"><figcaption>Origineel ${im.position}</figcaption></figure>
+   ${p.images.filter(im=>im.kind!=='sfeer').map(im=>`<div class="cmp" style="margin-bottom:14px"><figure><img src="${im.original_url}"><figcaption>Origineel ${im.position}</figcaption></figure>
     <figure>${im.processed_url?`<img src="${im.processed_url}">`:'<div class="note">Nog niet bewerkt</div>'}<figcaption>
     ${im.integrity?(im.integrity.passed?`✔ Pixelcontrole geslaagd: ${im.integrity.product_pixels.toLocaleString('nl-NL')} tas-pixels identiek, schaal 1:1`:`✖ Pixelcontrole mislukt`):''}
     ${im.integrity&&im.integrity.quality_issues&&im.integrity.quality_issues.length?im.integrity.quality_issues.map(q=>`<div class="note" style="color:var(--warn)">📷 ${esc(q)}</div>`).join(''):''}
@@ -183,6 +183,16 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
     ${a.niet_vast_te_stellen.length?`<h3>Niet vast te stellen</h3><div class="note">${a.niet_vast_te_stellen.map(esc).join(' · ')}</div>`:''}
     ${a.waarschuwingen.length?`<h3>Waarschuwingen</h3>${a.waarschuwingen.map(w=>`<div class="note err">${esc(w)}</div>`).join('')}`:''}`
    :`<div class="note">Geen AI-analyse beschikbaar${p.status==='review'?' — vul de velden handmatig in.':'.'}</div>`}
+   <h3>Sfeerbeelden</h3>
+   <p class="muted" style="margin-top:0;font-size:13px">AI maakt alleen de omgeving; de echte tas wordt er op ware grootte in gezet (tas-pixels exact). Afmetingen in cm — leeg = aanname 38×28×12.</p>
+   <div class="row"><div style="flex:1"><label>Breedte</label><input id="d-breedte" inputmode="decimal" value="${esc(p.dims&&p.dims.breedte)}"></div>
+    <div style="flex:1"><label>Hoogte</label><input id="d-hoogte" inputmode="decimal" value="${esc(p.dims&&p.dims.hoogte)}"></div>
+    <div style="flex:1"><label>Diepte</label><input id="d-diepte" inputmode="decimal" value="${esc(p.dims&&p.dims.diepte)}"></div></div>
+   <div class="row" style="margin-top:10px"><button class="btn ghost" data-scene="parijs" ${editable?'':'disabled'}>☀ Parijs – terras</button>
+    <button class="btn ghost" data-scene="model" ${editable?'':'disabled'}>Model (experimenteel)</button><span id="scmsg" class="muted"></span></div>
+   <div class="thumbs">${p.images.filter(im=>im.kind==='sfeer').map(im=>`<figure style="margin:0"><a href="${im.processed_url}" target="_blank"><img src="${im.processed_url}" style="width:180px;height:auto"></a>
+    <figcaption>${im.integrity&&im.integrity.passed?'✔ tas exact':''} · ${esc(im.integrity&&im.integrity.scene)}${im.integrity&&im.integrity.dims_assumed?' · maten aangenomen':''}
+    ${editable?` · <a href="#" data-delimg="${im.id}">verwijderen</a>`:''}</figcaption></figure>`).join('')}</div>
    <h3>Productgegevens</h3>
    <label>Titel</label><input id="f-title" value="${esc(p.title)}">
    <label>Beschrijving (HTML)</label><textarea id="f-description_html">${esc(p.description_html)}</textarea>
@@ -215,6 +225,12 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
    if(!confirm(e.message+'\n\nHeb je de bewerkte foto vergeleken met het origineel en is hij correct?'))throw new Error('Publicatie geannuleerd — controleer de uitsnede.');
    await api(`/api/products/${current}/approve?confirm_warnings=true`,{method:'POST'})}},'Wordt als concept naar Shopify gestuurd…');
  $('#reanalyze').onclick=()=>act(()=>api(`/api/products/${current}/retry?reanalyze=true`,{method:'POST'}),'Opnieuw in de wachtrij.');
+ document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=async()=>{const body={preset:b.dataset.scene};
+  ['breedte','hoogte','diepte'].forEach(k=>{const v=parseFloat($('#d-'+k).value.replace(',','.'));if(v>0)body[k]=v});
+  document.querySelectorAll('[data-scene]').forEach(x=>x.disabled=true);$('#scmsg').textContent='Scène wordt gemaakt (±30–60 s)…';
+  try{await api(`/api/products/${current}/sfeerbeeld`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});loadEdit(true)}
+  catch(e){$('#scmsg').textContent='Fout: '+e.message;document.querySelectorAll('[data-scene]').forEach(x=>x.disabled=false)}});
+ document.querySelectorAll('[data-delimg]').forEach(a=>a.onclick=async ev=>{ev.preventDefault();await api('/api/images/'+a.dataset.delimg,{method:'DELETE'});loadEdit(true)});
  $('#del').onclick=()=>confirm('Product verwijderen uit de studio?')&&act(async()=>{await api('/api/products/'+current,{method:'DELETE'});show('list')},'Verwijderd.');
 }
 

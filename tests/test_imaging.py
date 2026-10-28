@@ -57,3 +57,19 @@ def test_full_pipeline_keeps_handle_and_damage(tmp_path):
     mask = np.asarray(Image.open(res["mask_path"])) > 128
     assert mask[300:520, 620:980].sum() > 15000, "hengsel ontbreekt in de uitsnede"
     assert mask[760:900, 600:735].mean() > 0.5, "kras-gebied ontbreekt"
+
+
+def test_scene_place_true_scale_and_exact_pixels():
+    from app import scenes
+    rng = np.random.default_rng(3)
+    orig = Image.fromarray(rng.integers(0, 255, (300, 400, 3), dtype=np.uint8))
+    mask = np.zeros((300, 400), np.uint8); mask[60:240, 80:320] = 255   # tas 240 px breed
+    scene = Image.new("RGB", (1536, 1024), (200, 190, 170))
+    anchors = {"tafel_links_x": 0.1, "tafel_rechts_x": 0.7, "plaats_x": 0.4, "plaats_y": 0.75}
+    out, integ = scenes.place(orig, Image.fromarray(mask), scene, scenes.PRESETS["parijs"], anchors,
+                              {"breedte": 30.0})
+    assert integ["passed"] and integ["mismatched_pixels"] == 0 and integ["scale"] == 1.0
+    # tafel 60 cm = 0.6*1536 px; tas 30 cm moet half zo breed zijn als de tafel na schalen
+    table_px_scaled = 0.6 * 1536 * integ["scene_scale"]
+    assert abs(240 / table_px_scaled - 0.5) < 0.01
+    assert not integ["dims_assumed"]

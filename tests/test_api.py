@@ -100,3 +100,17 @@ def test_approve_blocked_when_cutout_flagged():
         r = client.post(f"/api/products/{pid}/approve")
         assert r.status_code == 409 and r.json()["detail"]["code"] == "uitsnede_waarschuwing"
         assert client.post(f"/api/products/{pid}/approve?confirm_warnings=true").status_code == 200
+
+
+def test_lifestyle_refused_when_cutout_uncertain():
+    from app import db
+    with TestClient(main.app) as client:
+        r = client.post("/api/batches", files=[("files", ("t.jpg", io.BytesIO(_photo(8)), "image/jpeg"))],
+                        data={"grouping": "per_foto", "style": "wit"})
+        pid = r.json()["product_ids"][0]
+        p = _wait(client, pid, {"review", "failed"})
+        img = p["images"][0]
+        integ = img["integrity"]; integ["completeness"]["review_required"] = True
+        db.update("images", img["id"], integrity_json=__import__("json").dumps(integ))
+        r = client.post(f"/api/products/{pid}/sfeerbeeld", json={"preset": "parijs"})
+        assert r.status_code == 409 and "uitsnede" in r.json()["detail"]

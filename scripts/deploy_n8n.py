@@ -77,6 +77,8 @@ def main() -> None:
     }
     pub = workflow("publish_to_shopify.json", subs)
     ana = workflow("analyze_vision.json", subs)
+    scn = workflow("scene_generate.json", subs)
+    print(f"Workflow aangemaakt en actief: {scn['name']} ({scn['id']})")
     print(f"Workflow aangemaakt en actief: {ana['name']} ({ana['id']})")
     print(f"Workflow aangemaakt en actief: {pub['name']} ({pub['id']})")
     if config.PUBLIC_BASE_URL and config.DASHBOARD_PASSWORD:

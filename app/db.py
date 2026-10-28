@@ -59,6 +59,13 @@ def connect() -> sqlite3.Connection:
 
 _conn = connect()
 _conn.executescript(SCHEMA)
+for _ddl in ("ALTER TABLE products ADD COLUMN dims_json TEXT",
+             "ALTER TABLE images ADD COLUMN kind TEXT NOT NULL DEFAULT 'product'"):
+    try:
+        _conn.execute(_ddl)
+    except sqlite3.OperationalError:
+        pass  # kolom bestaat al
+_conn.commit()
 
 
 @contextmanager
@@ -123,6 +130,7 @@ def product_full(pid: int) -> dict | None:
         return None
     p["tags"] = json.loads(p["tags"] or "[]")
     p["analysis"] = json.loads(p.pop("analysis_json") or "null")
+    p["dims"] = json.loads(p.pop("dims_json") or "null")
     p["images"] = query("SELECT * FROM images WHERE product_id = ? ORDER BY position", (pid,))
     for im in p["images"]:
         im["integrity"] = json.loads(im.pop("integrity_json") or "null")

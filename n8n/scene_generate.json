@@ -1,0 +1,29 @@
+{
+  "name": "AI Product Studio – Sfeerscène genereren (Gateway credits)",
+  "nodes": [
+    {
+      "id": "s1", "name": "Webhook: scène-prompt", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [0, 0],
+      "parameters": {"httpMethod": "POST", "path": "ai-product-studio/scene", "authentication": "headerAuth", "responseMode": "responseNode", "options": {}},
+      "credentials": {"httpHeaderAuth": {"id": "{{CRED_WEBHOOK}}", "name": "AI Studio – webhook secret"}}
+    },
+    {
+      "id": "s2", "name": "Lege scène genereren", "type": "@n8n/n8n-nodes-langchain.openAi", "typeVersion": 2.3, "position": [260, 0],
+      "retryOnFail": true, "maxTries": 2, "waitBetweenTries": 3000,
+      "parameters": {
+        "resource": "image", "operation": "generate", "model": "gpt-image-1",
+        "prompt": "={{ $json.body.prompt }}",
+        "options": {"size": "={{ $json.body.size || '1536x1024' }}", "quality": "={{ $json.body.quality || 'medium' }}"}
+      },
+      "credentials": {"openAiApi": {"id": null, "name": "", "__aiGatewayManaged": true}}
+    },
+    {
+      "id": "s3", "name": "Antwoord: scène (PNG)", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1, "position": [520, 0],
+      "parameters": {"respondWith": "binary", "inputDataFieldName": "data", "options": {}}
+    }
+  ],
+  "connections": {
+    "Webhook: scène-prompt": {"main": [[{"node": "Lege scène genereren", "type": "main", "index": 0}]]},
+    "Lege scène genereren": {"main": [[{"node": "Antwoord: scène (PNG)", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "none"}
+}

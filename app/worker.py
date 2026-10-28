@@ -110,8 +110,12 @@ def publish(p: dict) -> None:
     for im in full["images"]:
         if im["use_processed"] and im["integrity"] and not im["integrity"]["passed"]:
             raise ValueError(f"Afbeelding {im['position']} heeft geen geldige integriteitscontrole.")
+    # Productfoto's eerst, sfeerbeelden daarna (nooit als hoofdfoto).
+    ordered = sorted(full["images"], key=lambda im: (im.get("kind") == "sfeer", im["position"]))
     paths = [Path(im["processed_path"] if im["use_processed"] and im["processed_path"] else im["original_path"])
-             for im in full["images"]]
+             for im in ordered]
+    full["_alts"] = [(f"Sfeerbeeld (AI-omgeving, tas onbewerkt) – {full['title']}" if im.get("kind") == "sfeer"
+                      else full["title"]) for im in ordered]
     with Step(pid, "shopify_publicatie", attempt) as step:
         if config.PUBLISH_VIA == "n8n":
             if config.PUBLIC_BASE_URL:

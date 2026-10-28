@@ -230,6 +230,63 @@ async def correct_mask(image_id: int, file: UploadFile = File(...)):
     return {"ok": True, "integrity": res["integrity"]}
 
 
+class SceneRequest(BaseModel):
+    preset: str
+    image_id: int | None = None
+    breedte: float | None = None
+    hoogte: float | None = None
+    diepte: float | None = None
+
+
+@app.post("/api/products/{pid}/sfeerbeeld")
+def make_lifestyle(pid: int, body: SceneRequest):
+    """Genereert een lege AI-scène en plaatst de echte tas erin op ware grootte (tas-pixels exact)."""
+    from . import scenes
+    if body.preset not in scenes.PRESETS:
+        raise HTTPException(400, "Onbekende scène.")
+    p = db.one("SELECT status, dims_json FROM products WHERE id=?", (pid,))
+    if not p:
+        raise HTTPException(404)
+    if p["status"] in ("processing", "publishing", "published"):
+        raise HTTPException(409, "Niet mogelijk in deze status.")
+    base = db.one("SELECT * FROM images WHERE product_id=? AND kind='product' AND mask_path IS NOT NULL "
+                  + ("AND id=? " if body.image_id else "") + "ORDER BY position LIMIT 1",
+                  (pid, body.image_id) if body.image_id else (pid,))
+    if not base:
+        raise HTTPException(400, "Geen bewerkte productfoto beschikbaar.")
+    compl = (json.loads(base["integrity_json"] or "{}")).get("completeness", {})
+    if compl.get("review_required") or (base["use_processed"] == 0 and not compl.get("manual")):
+        raise HTTPException(409, "De uitsnede van deze foto is onzeker. Corrigeer eerst de uitsnede met het penseel.")
+    dims = {k: v for k, v in body.model_dump(include={"breedte", "hoogte", "diepte"}).items() if v}
+    if dims:
+        db.update("products", pid, dims_json=json.dumps(dims))
+    else:
+        dims = json.loads(p["dims_json"] or "null")
+    t0 = time.time()
+    try:
+        res = scenes.make_scene_image(Path(base["original_path"]), Path(base["mask_path"]),
+                                      config.OUTPUT_DIR / str(pid), body.preset, dims)
+    except Exception as e:  # noqa: BLE001
+        db.insert("events", product_id=pid, step=f"sfeer_{body.preset}", status="error", attempt=1,
+                  started_at=t0, ended_at=time.time(), duration_ms=int((time.time() - t0) * 1000), message=str(e)[:500])
+        raise HTTPException(502, f"Sfeerbeeld mislukt: {e}")
+    pos = (db.one("SELECT MAX(position) m FROM images WHERE product_id=?", (pid,))["m"] or 0) + 1
+    db.insert("images", product_id=pid, position=max(pos, 100), original_path=base["original_path"],
+              processed_path=res["path"], use_processed=1, kind="sfeer", integrity_json=json.dumps(res["integrity"]))
+    db.insert("events", product_id=pid, step=f"sfeer_{body.preset}", status="ok", attempt=1, started_at=t0,
+              ended_at=time.time(), duration_ms=int((time.time() - t0) * 1000), model="gpt-image-1 (n8n Gateway)",
+              message=("Afmetingen aangenomen (38×28×12 cm)" if res["integrity"]["dims_assumed"] else "Op ware grootte"))
+    db.update("products", pid)
+    return {"ok": True, "integrity": res["integrity"]}
+
+
+@app.delete("/api/images/{image_id}")
+def delete_image(image_id: int):
+    with db.tx() as c:
+        c.execute("DELETE FROM images WHERE id=? AND kind='sfeer'", (image_id,))
+    return {"ok": True}
+
+
 @app.post("/api/scenes")
 async def upload_scene(file: UploadFile = File(...), anchor_x: float = Form(0.5), anchor_y: float = Form(0.3)):
     """Sfeer-/modelfoto als achtergrond voor stijl 'scene'. Anker = waar het hengsel komt (bijv. de hand)."""
