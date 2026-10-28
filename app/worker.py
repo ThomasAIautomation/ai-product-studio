@@ -19,6 +19,7 @@ from . import config, db, imaging, shopify, vision
 
 log = logging.getLogger("studio.worker")
 _stop = threading.Event()
+UNRELIABLE_IOU = 0.80  # onder deze overeenstemming tussen de twee segmentatiemodellen: bewerking niet gebruiken
 
 
 class Step:
@@ -68,10 +69,17 @@ def process(p: dict) -> None:
     for im in images:
         if im["processed_path"]:
             continue  # al gedaan in eerdere poging
-        with Step(pid, f"beeld_{im['position']}", attempt):
+        with Step(pid, f"beeld_{im['position']}", attempt) as step:
             res = imaging.process_photo(Path(im["original_path"]), out_dir, p["style"] or "studio")
             db.update("images", im["id"], processed_path=res["processed_path"], mask_path=res["mask_path"],
                       integrity_json=json.dumps(res["integrity"]))
+            compl = res["integrity"].get("completeness", {})
+            if compl.get("agreement_iou", 1.0) < UNRELIABLE_IOU:
+                # Uitsnede duidelijk onbetrouwbaar (bijv. hand in beeld, tas half buiten beeld):
+                # standaard de originele foto gebruiken; de gebruiker kan corrigeren met het penseel.
+                db.update("images", im["id"], use_processed=0)
+                step.extra["message"] = (f"Uitsnede onbetrouwbaar (modellen {compl['agreement_iou']:.0%} eens) — "
+                                         "originele foto wordt gebruikt. Corrigeer met het penseel of maak een nieuwe foto.")
 
     if p["analysis_json"]:
         pass  # analyse al gelukt bij eerdere poging

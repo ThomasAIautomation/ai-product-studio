@@ -120,6 +120,20 @@ Getest met fictieve, gegenereerde testfoto's (`scripts/make_test_photo.py`). Ech
 - Goedgekeurd → **product 15921852711252 als DRAFT** in Shopify, met de AI-teksten, tags (inclusief `staat: onbekend`) en prijs.
 - Gevonden en opgelost: bij deze foto kwam een stukje achtergrond mee in de uitsnede. Het systeem gaf een waarschuwing, maar goedkeuren kon toch. Nu blokkeert goedkeuren bij een uitsnede-waarschuwing, totdat je de uitsnede corrigeert (penseel), de originele foto kiest of expliciet bevestigt. Het al aangemaakte testconcept bevat dat stukje nog wel.
 
+### Live test 3: echte tasfoto's (28-10-2026)
+
+Drie echte foto's (lage resolutie, ±430×570) in één batch, stijl `studio`. Zie `docs/echte-tassen-vergelijking.png` (origineel, uitsnede, resultaat).
+
+| Foto | Uitsnede | AI-analyse | Uitkomst |
+|---|---|---|---|
+| Tote met beschadiging | Modellen 99,2% eens, slijtage en rafelige hoek exact behouden | Staat "matig", vlekken en beschadiging rechtsonder met locatie; merk niet als feit | **Concept 15922683248980 in Shopify** |
+| Schoudertas aan standaard | Standaard (paal) meegenomen → waarschuwing | Correct, staat "onbekend" door lage detailweergave | Corrigeren met penseel |
+| Bostontas in de hand | Hand + hengsel overgebleven, tas weg (modellen 48% eens) | Correct, inclusief slijtage aan een hoek | Automatisch terug naar originele foto |
+
+Nieuw: onder 80% overeenstemming tussen de modellen gebruikt het systeem automatisch de originele foto.
+
+**Fotorichtlijnen:** product helemaal in beeld, geen hand of standaard, neutrale ondergrond, minimaal 1000 px aan de korte zijde, één foto per zijde, plus close-ups van gebreken.
+
 ## Openstaand
 
 1. Optioneel: Claude als alternatief analysemodel (`VISION_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).
