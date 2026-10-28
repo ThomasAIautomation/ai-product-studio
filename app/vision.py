@@ -16,6 +16,16 @@ from PIL import Image
 
 from . import config
 
+# Vaste staatschaal (zoals gangbaar bij tweedehands-luxeplatforms).
+CONDITION_SCALE = ["nieuw", "zo goed als nieuw", "zeer goed", "goed", "redelijk", "onbekend"]
+CONDITION_DEFINITIONS = """Staatschaal (kies precies één):
+- nieuw: ongedragen, eventueel met labels; geen enkel gebruiksspoor zichtbaar.
+- zo goed als nieuw: nauwelijks gedragen; hooguit minimale sporen die je alleen van dichtbij ziet.
+- zeer goed: licht gedragen; kleine gebruikssporen (lichte krasjes op beslag, minimale slijtage aan hoeken).
+- goed: duidelijk gedragen; zichtbare slijtage, lichte vlekken of verkleuring, maar zonder grote schade.
+- redelijk: flinke gebruikssporen of schade (scheuren, rafels, grote vlekken, kapotte onderdelen).
+- onbekend: de foto's zijn onvoldoende om de staat te beoordelen."""
+
 CONFIDENCE = {"type": "string", "enum": ["hoog", "middel", "laag"]}
 
 SCHEMA = {
@@ -42,7 +52,7 @@ SCHEMA = {
             "type": "object", "additionalProperties": False,
             "required": ["beoordeling", "zichtbare_gebreken"],
             "properties": {
-                "beoordeling": {"type": "string", "enum": ["nieuw ogend", "zeer goed", "goed", "redelijk", "matig", "onbekend"]},
+                "beoordeling": {"type": "string", "enum": CONDITION_SCALE},
                 "zichtbare_gebreken": {
                     "type": "array",
                     "items": {
@@ -80,7 +90,38 @@ Strikte regels:
 - beschrijving_html: korte alinea + <ul> met zichtbare kenmerken + een alinea "Staat" met de gebreken. Alleen <p>, <ul>, <li>, <strong>.
 - seo_titel max 60 tekens, seo_beschrijving max 155 tekens, handle in kleine letters met koppeltekens.
 - categorie: een Shopify-achtige categorie zoals "Tassen > Handtassen" of "Tassen > Rugzakken".
-- Is iets op de foto onduidelijk (onscherp, slecht licht, product deels buiten beeld), meld dat in waarschuwingen."""
+- Is iets op de foto onduidelijk (onscherp, slecht licht, product deels buiten beeld), meld dat in waarschuwingen.
+- Verwijs niet naar merkpatronen of -kenmerken (zoals "dubbel-G", "LV-monogram", "CC-logo") in titel, beschrijving of SEO,
+  tenzij de verkoper het merk heeft bevestigd. Beschrijf het patroon neutraal ("herhalend monogrampatroon").
+- Informatie die door de verkoper is BEVESTIGD mag je als feit gebruiken en hoort in de tekst (afmetingen, materiaal, merk, bouwjaar, accessoires).
+""" + "\n" + CONDITION_DEFINITIONS
+
+
+STYLE_FILE = Path(__file__).resolve().parent.parent / "prompts" / "schrijfstijl.md"
+
+
+def system_prompt() -> str:
+    """SYSTEM + eventuele voorbeeldteksten van de eigenaar (prompts/schrijfstijl.md, regels met # worden genegeerd)."""
+    try:
+        examples = "\n".join(l for l in STYLE_FILE.read_text().splitlines() if not l.lstrip().startswith("#")).strip()
+    except OSError:
+        examples = ""
+    if not examples:
+        return SYSTEM
+    return (SYSTEM + "\n\nSchrijfstijl: schrijf in dezelfde toon, zinslengte en opbouw als deze voorbeeldteksten van de "
+            "eigenaar (neem GEEN feiten uit de voorbeelden over):\n" + examples[:6000])
+
+
+def confirmed_text(info: dict | None) -> str:
+    """Door de verkoper bevestigde gegevens als prompttekst."""
+    if not info:
+        return ""
+    labels = {"merk": "Merk (door verkoper gecontroleerd)", "materiaal": "Materiaal (volgens label)",
+              "breedte": "Breedte (cm)", "hoogte": "Hoogte (cm)", "diepte": "Diepte (cm)",
+              "draaglengte": "Draaglengte/hengselhoogte (cm)", "bouwjaar": "Bouwjaar/periode",
+              "accessoires": "Meegeleverd", "notities": "Overige opmerkingen verkoper"}
+    rows = [f"- {labels.get(k, k)}: {v}" for k, v in info.items() if v not in (None, "", [])]
+    return ("\nBEVESTIGDE informatie van de verkoper (mag als feit gebruikt worden):\n" + "\n".join(rows)) if rows else ""
 
 
 class VisionNotConfigured(RuntimeError):
@@ -139,13 +180,8 @@ def _parse_json(text: str) -> dict:
     return data
 
 
-def analyze_via_n8n(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict]:
+def _n8n_vision(prompt: str, photo_paths: list[Path]) -> tuple[str, dict]:
     import httpx
-    n = min(len(photo_paths), 6)
-    prompt = (SYSTEM + f"\n\nJe krijgt één overzichtsafbeelding met {n} genummerde foto's (Foto 1..{n}) van hetzelfde product."
-              + "\nAntwoord UITSLUITEND met één JSON-object (geen uitleg, geen markdown) dat voldoet aan dit JSON-schema:\n"
-              + json.dumps(SCHEMA, ensure_ascii=False)
-              + (f"\nExtra info van de verkoper (niet geverifieerd): {hint}" if hint else ""))
     try:
         r = httpx.post(config.N8N_ANALYZE_WEBHOOK_URL, data={"prompt": prompt},
                        files={"image": ("product.jpg", contact_sheet(photo_paths), "image/jpeg")},
@@ -157,22 +193,74 @@ def analyze_via_n8n(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict
     if r.status_code >= 300:
         raise RuntimeError(f"n8n-analyse {r.status_code}: {r.text[:300]}")
     body = r.json()
+    usage = body.get("usage") or {}
+    return body.get("text") or "", {"model": f"{body.get('model', 'gpt-6-luna')} (n8n Gateway)",
+                                    "input_tokens": usage.get("input_tokens", 0),
+                                    "output_tokens": usage.get("output_tokens", 0), "cost_usd": None}
+
+
+def analyze_via_n8n(photo_paths: list[Path], confirmed: dict | None = None) -> tuple[dict, dict]:
+    n = min(len(photo_paths), 6)
+    prompt = (system_prompt() + f"\n\nJe krijgt één overzichtsafbeelding met {n} genummerde foto's (Foto 1..{n}) van hetzelfde product."
+              + "\nAntwoord UITSLUITEND met één JSON-object (geen uitleg, geen markdown) dat voldoet aan dit JSON-schema:\n"
+              + json.dumps(SCHEMA, ensure_ascii=False) + confirmed_text(confirmed))
+    text, usage = _n8n_vision(prompt, photo_paths)
     try:
-        data = _parse_json(body.get("text") or "")
+        data = _parse_json(text)
     except (ValueError, json.JSONDecodeError) as e:
         raise TransientVisionError(f"Ongeldig AI-antwoord, opnieuw proberen: {e}") from e
-    usage = body.get("usage") or {}
-    return data, {"model": f"{body.get('model', 'gpt-6-luna')} (n8n Gateway)",
-                  "input_tokens": usage.get("input_tokens", 0), "output_tokens": usage.get("output_tokens", 0),
-                  "cost_usd": None}
+    return data, usage
 
 
-def analyze(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict]:
+FACTCHECK_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["oordeel", "problemen", "titel", "beschrijving_html", "seo_titel", "seo_beschrijving"],
+    "properties": {
+        "oordeel": {"type": "string", "enum": ["ok", "aangepast"]},
+        "problemen": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                                  "required": ["tekst", "reden"],
+                                                  "properties": {"tekst": {"type": "string"}, "reden": {"type": "string"}}}},
+        "titel": {"type": "string"}, "beschrijving_html": {"type": "string"},
+        "seo_titel": {"type": "string"}, "seo_beschrijving": {"type": "string"},
+    },
+}
+
+
+def factcheck(analysis: dict, photo_paths: list[Path], confirmed: dict | None = None) -> tuple[dict, dict]:
+    """Tweede AI-ronde: een strenge eindredacteur controleert elke bewering tegen de foto's."""
+    texts = {k: analysis.get(k) for k in ("titel", "beschrijving_html", "seo_titel", "seo_beschrijving")}
+    prompt = ("Je bent een strenge eindredacteur en factchecker voor een Nederlandse tassenwebshop. Hieronder staan "
+              "productteksten die een collega schreef, plus de foto's van het product en de lijst zichtbare gebreken.\n"
+              "Controleer ELKE bewering:\n"
+              "- Is het zichtbaar op de foto's of bevestigd door de verkoper? Zo niet: verwijderen of neutraal herformuleren.\n"
+              "- Staan ALLE zichtbare gebreken eerlijk in de beschrijving? Zo niet: toevoegen.\n"
+              "- Geen merknamen of merkpatronen (dubbel-G, monogram van een merk) zonder bevestiging door de verkoper.\n"
+              "- Geen claims als 'echt leer', 'authentiek', 'origineel', '100%', 'luxe' zonder bevestiging.\n"
+              "- seo_titel max 60 tekens, seo_beschrijving max 155 tekens. Behoud toon en HTML-opbouw.\n"
+              "Geef 'oordeel': 'ok' als niets hoeft te veranderen (geef de teksten dan ongewijzigd terug), anders 'aangepast'.\n"
+              "Antwoord UITSLUITEND met JSON volgens dit schema:\n" + json.dumps(FACTCHECK_SCHEMA, ensure_ascii=False)
+              + "\n\nTeksten:\n" + json.dumps(texts, ensure_ascii=False)
+              + "\n\nZichtbare gebreken volgens de analyse:\n"
+              + json.dumps(analysis.get("staat", {}).get("zichtbare_gebreken", []), ensure_ascii=False)
+              + confirmed_text(confirmed))
+    text, usage = _n8n_vision(prompt, photo_paths)
+    try:
+        t = text.strip()
+        data = json.loads(t[t.find("{"): t.rfind("}") + 1])
+        missing = [k for k in FACTCHECK_SCHEMA["required"] if k not in data]
+        if missing:
+            raise ValueError(f"factcheck mist velden: {missing}")
+    except (ValueError, json.JSONDecodeError) as e:
+        raise TransientVisionError(f"Ongeldig factcheck-antwoord: {e}") from e
+    return data, usage
+
+
+def analyze(photo_paths: list[Path], confirmed: dict | None = None) -> tuple[dict, dict]:
     """Retourneert (analyse, usage). Gooit fouten door; worker bepaalt of retry zinvol is."""
     if config.VISION_PROVIDER == "n8n":
         if not config.N8N_ANALYZE_WEBHOOK_URL:
             raise VisionNotConfigured("N8N_ANALYZE_WEBHOOK_URL ontbreekt — AI-analyse staat uit.")
-        return analyze_via_n8n(photo_paths, hint)
+        return analyze_via_n8n(photo_paths, confirmed)
     if not config.ANTHROPIC_API_KEY:
         raise VisionNotConfigured("ANTHROPIC_API_KEY ontbreekt — AI-analyse staat uit.")
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=0, timeout=180)
@@ -181,12 +269,12 @@ def analyze(photo_paths: list[Path], hint: str = "") -> tuple[dict, dict]:
         content.append({"type": "text", "text": f"Foto {i}:"})
         content.append(_encode(p))
     content.append({"type": "text", "text": "Analyseer dit product volgens de regels."
-                    + (f"\nExtra info van de verkoper (niet geverifieerd): {hint}" if hint else "")})
+                    + confirmed_text(confirmed)})
 
     response = client.messages.create(
         model=config.VISION_MODEL,
         max_tokens=16000,
-        system=SYSTEM,
+        system=system_prompt(),
         messages=[{"role": "user", "content": content}],
         output_config={"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}},
         extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"},

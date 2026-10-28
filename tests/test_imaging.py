@@ -73,3 +73,11 @@ def test_scene_place_true_scale_and_exact_pixels():
     table_px_scaled = 0.6 * 1536 * integ["scene_scale"]
     assert abs(240 / table_px_scaled - 0.5) < 0.01
     assert not integ["dims_assumed"]
+
+
+def test_blank_photo_is_rejected(tmp_path):
+    import pytest
+    src = tmp_path / "leeg.png"
+    Image.new("RGB", (1200, 1200), (240, 240, 240)).save(src)
+    with pytest.raises(ValueError, match="Geen tas herkend"):
+        imaging.process_photo(src, tmp_path, "studio")

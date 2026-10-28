@@ -15,7 +15,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, db, imaging, shopify, vision
+from . import alerts, config, db, imaging, shopify, vision
 
 log = logging.getLogger("studio.worker")
 _stop = threading.Event()
@@ -58,6 +58,14 @@ def _fail_or_retry(p: dict, exc: Exception, attempts: int, retry_status: str, fa
                   next_attempt_at=time.time() + delay)
     else:
         db.update("products", p["id"], status=fail_status, error=str(exc)[:2000], next_attempt_at=None)
+        stage = "publicatie naar Shopify" if fail_status == "publish_failed" else "verwerking"
+        alerts.notify("fout", f"Product #{p['id']}: {stage} mislukt",
+                      f"Na {attempts} poging(en): {exc}", product_id=p["id"], key=f"fail-{p['id']}-{fail_status}")
+    msg = str(exc).lower()
+    if "credit" in msg or "quota" in msg or "insufficient" in msg:
+        alerts.notify("kritiek", "AI-tegoed lijkt op of geblokkeerd",
+                      f"De AI-dienst meldt een tegoed-/quotumprobleem: {exc}. Controleer je n8n Gateway credits.",
+                      key="credits", cooldown=3 * 3600)
 
 
 def process(p: dict) -> None:
@@ -88,10 +96,23 @@ def process(p: dict) -> None:
                   started_at=time.time(), ended_at=time.time(), duration_ms=0,
                   message="AI uitgeschakeld (geen API-sleutel): vul teksten handmatig in.")
     else:
+        confirmed = {**json.loads(p.get("dims_json") or "{}"), **json.loads(p.get("seller_json") or "{}")}
+        photos = [Path(i["original_path"]) for i in images]
         with Step(pid, "ai_analyse", attempt) as step:
-            data, usage = vision.analyze([Path(i["original_path"]) for i in images])
+            data, usage = vision.analyze(photos, confirmed)
             step.extra.update(model=usage["model"], input_tokens=usage["input_tokens"],
                               output_tokens=usage["output_tokens"], cost_usd=usage["cost_usd"])
+        if config.FACTCHECK and config.VISION_PROVIDER == "n8n":
+            with Step(pid, "factcheck", attempt) as step:
+                fc, usage = vision.factcheck(data, photos, confirmed)
+                step.extra.update(model=usage["model"], input_tokens=usage["input_tokens"],
+                                  output_tokens=usage["output_tokens"], cost_usd=usage["cost_usd"],
+                                  message=f"{fc['oordeel']}: {len(fc['problemen'])} aanpassing(en)")
+            data["factcheck"] = {"oordeel": fc["oordeel"], "problemen": fc["problemen"],
+                                 "origineel": {k: data[k] for k in ("titel", "beschrijving_html", "seo_titel", "seo_beschrijving")}}
+            for k in ("titel", "beschrijving_html", "seo_titel", "seo_beschrijving"):
+                if fc.get(k):
+                    data[k] = fc[k]
         db.update("products", pid, analysis_json=json.dumps(data, ensure_ascii=False),
                   title=data["titel"], description_html=data["beschrijving_html"],
                   product_type=data["producttype"], category=data["categorie"],
@@ -153,6 +174,97 @@ def _loop() -> None:
         _stop.wait(1.0)
 
 
+_last = {"flush": 0.0, "health": 0.0, "stuck": 0.0}
+
+
+def check_stuck() -> int:
+    """Producten die te lang 'bezig' zijn opnieuw inplannen en melden."""
+    limit = time.time() - config.STUCK_MINUTES * 60
+    rows = db.query("SELECT id, status FROM products WHERE status IN ('processing','publishing') AND updated_at < ?", (limit,))
+    for r in rows:
+        new = "queued" if r["status"] == "processing" else "publish_queued"
+        db.update("products", r["id"], status=new, next_attempt_at=None)
+        alerts.notify("waarschuwing", f"Product #{r['id']} hing vast",
+                      f"Stond langer dan {config.STUCK_MINUTES} min op '{r['status']}'; automatisch opnieuw ingepland.",
+                      product_id=r["id"], key=f"stuck-{r['id']}")
+    return len(rows)
+
+
+def health_check() -> list[str]:
+    """Controleert Shopify, n8n en schijfruimte. Problemen worden gemeld (max. 1× per 6 uur per soort)."""
+    import shutil
+    import httpx
+    problems = []
+    if config.SHOPIFY_CLIENT_ID:
+        try:
+            shopify.graphql("{ shop { name } }")
+        except Exception as e:  # noqa: BLE001
+            problems.append(("shopify", f"Shopify-koppeling werkt niet: {e}"))
+    n8n = config.env("N8N_URL", "https://supplierresponse.app.n8n.cloud").rstrip("/")
+    try:
+        if httpx.get(f"{n8n}/healthz", timeout=20).status_code != 200:
+            problems.append(("n8n", "n8n reageert niet goed op de gezondheidscheck."))
+    except httpx.HTTPError as e:
+        problems.append(("n8n", f"n8n onbereikbaar: {e}"))
+    free_gb = shutil.disk_usage(config.DATA_DIR).free / 1e9
+    if free_gb < 1:
+        problems.append(("disk", f"Nog maar {free_gb:.2f} GB schijfruimte vrij."))
+    for key, msg in problems:
+        alerts.notify("kritiek", "Gezondheidscheck: probleem gevonden", msg, key=f"health-{key}")
+    return [m for _, m in problems]
+
+
+def daily_summary(force: bool = False) -> bool:
+    """Dagoverzicht van de afgelopen 24 uur, één keer per dag rond DAILY_SUMMARY_HOUR (Europe/Amsterdam)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    if config.DAILY_SUMMARY_HOUR < 0 and not force:
+        return False
+    now = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    marker = config.DATA_DIR / "laatste_dagoverzicht.txt"
+    today = now.date().isoformat()
+    if not force and (now.hour < config.DAILY_SUMMARY_HOUR or (marker.exists() and marker.read_text() == today)):
+        return False
+    since = time.time() - 86400
+    q = lambda sql: db.one(sql, (since,))["n"]
+    stats = {
+        "Nieuw geüpload": q("SELECT COUNT(*) n FROM products WHERE created_at >= ?"),
+        "Als concept in Shopify gezet": q("SELECT COUNT(*) n FROM products WHERE published_at >= ?"),
+        "Mislukt": q("SELECT COUNT(*) n FROM products WHERE status IN ('failed','publish_failed') AND updated_at >= ?"),
+        "AI-tokens gebruikt": q("SELECT COALESCE(SUM(input_tokens)+SUM(output_tokens),0) n FROM events WHERE started_at >= ?"),
+    }
+    waiting = db.one("SELECT COUNT(*) n FROM products WHERE status='review'")["n"]
+    failed = db.query("SELECT id, error FROM products WHERE status IN ('failed','publish_failed') ORDER BY id DESC LIMIT 10")
+    rows = "".join(f"<tr><td style='padding:4px 12px 4px 0'>{k}</td><td><b>{v}</b></td></tr>" for k, v in stats.items())
+    items = [{"title": f"Product #{f['id']} mislukt", "message": (f["error"] or "")[:300], "link": alerts.link(f["id"])}
+             for f in failed]
+    ok = alerts.send_now("fout" if failed else "info", f"Dagoverzicht {now.strftime('%d-%m-%Y')}",
+                         items, intro=f"{waiting} product(en) wachten op jouw controle.",
+                         html_extra=f"<table style='margin-top:12px'>{rows}</table>")
+    if ok:
+        marker.write_text(today)
+    return ok
+
+
+def _monitor() -> None:
+    while not _stop.is_set():
+        now = time.time()
+        try:
+            if now - _last["stuck"] > 300:
+                _last["stuck"] = now
+                check_stuck()
+            if now - _last["health"] > 3600:
+                _last["health"] = now
+                health_check()
+                daily_summary()
+            if now - _last["flush"] > 60:
+                _last["flush"] = now
+                alerts.flush()
+        except Exception:  # noqa: BLE001
+            log.warning("monitor: %s", traceback.format_exc())
+        _stop.wait(10)
+
+
 def recover_interrupted() -> None:
     """Na een herstart: producten die midden in verwerking zaten opnieuw inplannen."""
     with db.tx() as c:
@@ -164,6 +276,8 @@ def start() -> list[threading.Thread]:
     _stop.clear()
     recover_interrupted()
     threads = [threading.Thread(target=_loop, name=f"worker-{i}", daemon=True) for i in range(config.WORKERS)]
+    if config.MONITOR:
+        threads.append(threading.Thread(target=_monitor, name="monitor", daemon=True))
     for t in threads:
         t.start()
     return threads

@@ -276,6 +276,10 @@ def process_photo(src: Path, out_dir: Path, style: str, manual_mask: Image.Image
                         "agreement_iou": 1.0, "islands_removed": 0, "holes_filled": 0}
     else:
         mask, completeness = segment(original)
+        area = (np.asarray(mask) > 128).mean()
+        if area < 0.01 or completeness["agreement_iou"] < 0.1:
+            raise ValueError(f"Geen tas herkend op deze foto (productoppervlak {area:.1%}, modellen "
+                             f"{completeness['agreement_iou']:.0%} eens). Controleer of de juiste foto is geüpload.")
     scene = anchor = None
     if style == "scene":
         picked = pick_scene()

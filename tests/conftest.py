@@ -10,6 +10,9 @@ for k in ("N8N_ANALYZE_WEBHOOK_URL", "N8N_PUBLISH_WEBHOOK_URL", "N8N_WEBHOOK_SEC
     os.environ[k] = ""
 os.environ["VISION_PROVIDER"] = "anthropic"
 os.environ["PUBLISH_VIA"] = "direct"
+os.environ["N8N_ALERT_WEBHOOK_URL"] = ""
+os.environ["MONITOR"] = "false"
+os.environ["DAILY_SUMMARY_HOUR"] = "-1"
 os.environ["MAX_ATTEMPTS"] = "3"
 os.environ["RETRY_BASE_SECONDS"] = "0.2"
 ROOT = Path(__file__).resolve().parent.parent

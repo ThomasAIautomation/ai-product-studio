@@ -150,6 +150,36 @@ Nieuw: onder 80% overeenstemming tussen de modellen gebruikt het systeem automat
 
 Resultaat: `docs/sfeer-parijs-tote.png` (concept 15922834407764, 2 afbeeldingen) en `docs/sfeer-eerste-tests.png`.
 
+## Bewaking, meldingen, betere teksten en nieuwsbrief (28-10-2026)
+
+### Meldingen naar de beheerder (Thomas.Lamers@hotmail.com, via de Outlook-koppeling in n8n)
+| Wanneer | Hoe |
+|---|---|
+| Verwerking of publicatie definitief mislukt | Directe mail met product, stap, foutmelding en link |
+| Product hangt > 15 min op "bezig" | Automatisch opnieuw ingepland + mail |
+| Shopify-koppeling, n8n of schijfruimte faalt (elk uur gecontroleerd) | Mail, max. 1× per 6 uur per soort probleem |
+| AI-tegoed/quotum-fout | Kritieke mail |
+| Een n8n-workflow crasht | n8n-workflow "Foutbewaking" (Error Trigger) mailt direct |
+| Elke ochtend 08:00 | Dagoverzicht: nieuw, gepubliceerd, mislukt, tokens, wat op controle wacht |
+
+Meldingen worden 60 s gebundeld (één mail per batch) en blijven bij een verzendfout in de wachtrij. In het Monitor-scherm zitten testknoppen.
+
+### Betere omschrijvingen
+- **"Wat jij weet (bevestigd)"**: merk, materiaal, afmetingen, draaglengte, bouwjaar, accessoires en notities. De AI gebruikt dit als feit.
+- **Vaste staatschaal**: nieuw / zo goed als nieuw / zeer goed / goed / redelijk / onbekend, met definities.
+- **Eigen schrijfstijl**: plak voorbeeldteksten in `prompts/schrijfstijl.md`.
+- **AI-eindredactie**: een tweede AI-ronde controleert elke bewering tegen de foto's, verwijdert claims zonder bewijs en voegt ontbrekende gebreken toe. Wat er veranderd is, staat zichtbaar in het dashboard.
+- **Tekstcontrole vóór publicatie**: merk(patroon) zonder bevestiging, gebreken die niet in de tekst staan, claims ("echt leer", "authentiek"), te lange titel of SEO, ontbrekende prijs of maten. Bij een fout blokkeert goedkeuren tot je bevestigt.
+- **Geen tas herkend** (lege of verkeerde foto) → mislukt + melding, in plaats van door te gaan.
+
+### Nieuwsbrief (Klaviyo) – gebouwd, wacht op account
+- n8n-workflow "Nieuwsbrief nieuwe tassen (Klaviyo)": elke maandag 09:47 haalt hij actieve tassen op (`tag:ai-product-studio`, nog zonder tag `nieuwsbrief-verstuurd`). Daarna maakt hij de mail op (sfeerbeeld eerst, titel, eerste alinea, prijs, knop), maakt hij in Klaviyo template en campagne aan, verstuurt hij naar de lijst, tagt hij de producten (geen dubbele mails) en mailt hij jou een bevestiging.
+- Verstuurt niets zolang `KLAVIYO_LIST_ID` niet is ingesteld.
+- Knop "Nieuwsbrief-voorbeeld naar mij" mailt de opgemaakte nieuwsbrief alleen naar de beheerder (ook met concepten). Zie `docs/nieuwsbrief-voorbeeld.png`.
+- Toestemming en afmelden regelt Klaviyo (`{% unsubscribe %}`); alleen klanten met marketingtoestemming staan in de lijst.
+
+**Klaviyo activeren:** account aanmaken → Shopify-integratie koppelen → private API-key (scopes: campaigns, templates, lists) in de n8n-credential "Klaviyo API-sleutel (invullen)" zetten als `Klaviyo-API-Key pk_…` → lijst-ID in `.env` als `KLAVIYO_LIST_ID` → `python scripts/deploy_n8n.py`.
+
 ## Openstaand
 
 1. Optioneel: Claude als alternatief analysemodel (`VISION_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`).

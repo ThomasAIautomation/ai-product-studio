@@ -91,6 +91,10 @@ figcaption{font-size:12px;color:var(--muted);margin-top:4px}
 <section id="v-edit" class="hidden"></section>
 
 <section id="v-monitor" class="hidden grid">
+  <div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Bewaking & meldingen</h2>
+   <div class="row"><button class="btn ghost" data-admin="test-alert">Testmelding sturen</button><button class="btn ghost" data-admin="health">Gezondheidscheck</button>
+   <button class="btn ghost" data-admin="daily-summary">Dagoverzicht nu sturen</button><button class="btn ghost" data-admin="newsletter-preview">Nieuwsbrief-voorbeeld naar mij</button></div></div>
+   <div id="adminmsg" class="muted" style="margin-top:8px">Meldingen gaan naar de beheerder bij fouten, vastgelopen producten, koppelingsproblemen en tegoedproblemen; elke ochtend volgt een dagoverzicht.</div></div>
   <div class="kpis" id="kpis"></div>
   <div class="card"><h2>Stappen</h2><table><thead><tr><th>Stap</th><th>Aantal</th><th>Gem. duur</th><th>Fouten</th><th>Kosten</th></tr></thead><tbody id="steps"></tbody></table></div>
   <div class="card"><h2>Recente fouten</h2><table><thead><tr><th>Product</th><th>Stap</th><th>Poging</th><th>Melding</th><th>Tijd</th></tr></thead><tbody id="errs"></tbody></table></div>
@@ -123,7 +127,8 @@ function show(v){view=v;document.querySelectorAll('main>section').forEach(s=>s.c
 async function loadCfg(){const c=await api('/api/config');
  $('#cfg').innerHTML=`<span class="pill ${c.vision?'ok':'off'}">AI: ${c.vision?esc(c.vision_model):'uit'}</span>
  <span class="pill ${c.shopify||c.n8n?'ok':'off'}">Shopify: ${c.shopify||c.n8n?esc(c.shopify_shop)+' via '+esc(c.publish_via):'niet gekoppeld'}</span>
- <span class="pill ${c.scenes.length?'ok':''}">Scène: ${c.scenes.length?'ingesteld':'geen'}</span>`}
+ <span class="pill ${c.alerts?'ok':'off'}">Meldingen: ${c.alerts?'aan':'uit'}</span>
+ <span class="pill ${c.factcheck?'ok':''}">Eindredactie: ${c.factcheck?'aan':'uit'}</span>`}
 
 // Upload
 const drop=$('#drop'), fi=$('#file');
@@ -183,6 +188,17 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
     ${a.niet_vast_te_stellen.length?`<h3>Niet vast te stellen</h3><div class="note">${a.niet_vast_te_stellen.map(esc).join(' · ')}</div>`:''}
     ${a.waarschuwingen.length?`<h3>Waarschuwingen</h3>${a.waarschuwingen.map(w=>`<div class="note err">${esc(w)}</div>`).join('')}`:''}`
    :`<div class="note">Geen AI-analyse beschikbaar${p.status==='review'?' — vul de velden handmatig in.':'.'}</div>`}
+   ${p.lint&&p.lint.length?`<h3>Tekstcontrole</h3>${p.lint.map(i=>`<div class="note" style="color:${i.level==='fout'?'var(--err)':i.level==='waarschuwing'?'var(--warn)':'var(--muted)'}">${i.level==='fout'?'✖':i.level==='waarschuwing'?'⚠':'ℹ'} ${esc(i.message)}</div>`).join('')}`:'<h3>Tekstcontrole</h3><div class="note" style="color:var(--ok)">✔ Geen problemen gevonden.</div>'}
+   ${a&&a.factcheck?`<h3>AI-eindredactie: ${a.factcheck.oordeel==='ok'?'geen aanpassingen nodig':a.factcheck.problemen.length+' aanpassing(en)'}</h3>
+    ${a.factcheck.problemen.map(x=>`<div class="attr"><s class="muted">${esc(x.tekst)}</s><div>${esc(x.reden)}</div></div>`).join('')}`:''}
+   <h3>Wat jij weet (bevestigd)</h3>
+   <p class="muted" style="margin-top:0;font-size:13px">Wat je hier invult, mag de AI als feit gebruiken. Klik daarna op "Opnieuw analyseren" voor nieuwe teksten.</p>
+   <div class="row"><div style="flex:1"><label>Merk (zelf gecontroleerd)</label><input id="s-merk" value="${esc(p.seller&&p.seller.merk)}"></div>
+    <div style="flex:1"><label>Materiaal (volgens label)</label><input id="s-materiaal" value="${esc(p.seller&&p.seller.materiaal)}"></div></div>
+   <div class="row"><div style="flex:1"><label>Draaglengte / hengselhoogte (cm)</label><input id="s-draaglengte" value="${esc(p.seller&&p.seller.draaglengte)}"></div>
+    <div style="flex:1"><label>Bouwjaar / periode</label><input id="s-bouwjaar" value="${esc(p.seller&&p.seller.bouwjaar)}"></div></div>
+   <label>Meegeleverd (stofzak, doos, bonnetje…)</label><input id="s-accessoires" value="${esc(p.seller&&p.seller.accessoires)}">
+   <label>Overige opmerkingen</label><input id="s-notities" value="${esc(p.seller&&p.seller.notities)}">
    <h3>Sfeerbeelden</h3>
    <p class="muted" style="margin-top:0;font-size:13px">AI maakt alleen de omgeving; de echte tas wordt er op ware grootte in gezet (tas-pixels exact). Afmetingen in cm — leeg = aanname 38×28×12.</p>
    <div class="row"><div style="flex:1"><label>Breedte</label><input id="d-breedte" inputmode="decimal" value="${esc(p.dims&&p.dims.breedte)}"></div>
@@ -215,16 +231,18 @@ async function loadEdit(force){const p=await api('/api/products/'+current);
  $('#back').onclick=()=>show('list');
  const save=async()=>{const body={};['title','description_html','product_type','category','seo_title','seo_description','handle','price'].forEach(k=>body[k]=$('#f-'+k).value);
   body.tags=$('#f-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
+  body.seller=Object.fromEntries(['merk','materiaal','draaglengte','bouwjaar','accessoires','notities'].map(k=>[k,$('#s-'+k).value.trim()]));
+  body.dims=Object.fromEntries(['breedte','hoogte','diepte'].map(k=>[k,parseFloat($('#d-'+k).value.replace(',','.'))||null]));
   body.image_choices=Object.fromEntries([...document.querySelectorAll('[data-img]')].map(c=>[c.dataset.img,c.checked]));
   await api('/api/products/'+current,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})};
  const act=async(fn,ok)=>{try{await fn();$('#msg').textContent=ok;loadEdit(true)}catch(e){$('#msg').textContent='Fout: '+e.message}};
  $('#save').onclick=()=>act(save,'Opgeslagen.');
  $('#approve').onclick=()=>act(async()=>{await save();
   try{await api(`/api/products/${current}/approve`,{method:'POST'})}
-  catch(e){if(!(e.detail&&e.detail.code==='uitsnede_waarschuwing'))throw e;
-   if(!confirm(e.message+'\n\nHeb je de bewerkte foto vergeleken met het origineel en is hij correct?'))throw new Error('Publicatie geannuleerd — controleer de uitsnede.');
+  catch(e){if(!(e.detail&&e.detail.warnings))throw e;
+   if(!confirm(e.message+'\n\nHeb je dit gecontroleerd en wil je toch als concept publiceren?'))throw new Error('Publicatie geannuleerd — los eerst de punten op.');
    await api(`/api/products/${current}/approve?confirm_warnings=true`,{method:'POST'})}},'Wordt als concept naar Shopify gestuurd…');
- $('#reanalyze').onclick=()=>act(()=>api(`/api/products/${current}/retry?reanalyze=true`,{method:'POST'}),'Opnieuw in de wachtrij.');
+ $('#reanalyze').onclick=()=>act(async()=>{await save();await api(`/api/products/${current}/retry?reanalyze=true`,{method:'POST'})},'Opnieuw in de wachtrij (met jouw bevestigde info).');
  document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=async()=>{const body={preset:b.dataset.scene};
   ['breedte','hoogte','diepte'].forEach(k=>{const v=parseFloat($('#d-'+k).value.replace(',','.'));if(v>0)body[k]=v});
   document.querySelectorAll('[data-scene]').forEach(x=>x.disabled=true);$('#scmsg').textContent='Scène wordt gemaakt (±30–60 s)…';
@@ -276,6 +294,11 @@ async function loadMonitor(){const s=await api('/api/stats');const b=s.by_status
  $('#errs').innerHTML=s.recent_errors.map(e=>`<tr class="click" onclick="openProduct(${e.product_id})"><td>#${e.product_id}</td><td>${esc(e.step)}</td><td>${e.attempt}</td><td>${esc(e.message)}</td><td class="muted">${ago(e.ended_at)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Geen fouten.</td></tr>'}
 
 async function refresh(){try{if(view==='list')await loadList();if(view==='edit')await loadEdit();if(view==='monitor')await loadMonitor()}catch(e){console.error(e)}}
+document.querySelectorAll('[data-admin]').forEach(b=>b.onclick=async()=>{b.disabled=true;$('#adminmsg').textContent='Bezig…';
+ try{const r=await api('/api/admin/'+b.dataset.admin,{method:'POST'});
+  $('#adminmsg').textContent=b.dataset.admin==='health'?(r.problems.length?'Problemen: '+r.problems.join(' · '):'✔ Alles in orde.'):'✔ Verstuurd — kijk in je mailbox.'}
+ catch(e){$('#adminmsg').textContent='Fout: '+e.message}finally{b.disabled=false}});
+const m=location.hash.match(/^#product-(\d+)$/);if(m)openProduct(+m[1]);
 loadCfg();setInterval(refresh,3000);
 </script>
 </body>

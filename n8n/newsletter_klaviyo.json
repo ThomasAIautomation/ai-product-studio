@@ -1,0 +1,685 @@
+{
+  "name": "AI Product Studio – Nieuwsbrief nieuwe tassen (Klaviyo)",
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Elke maandag 09:47",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "47 9 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Webhook: voorbeeld naar beheerder",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-product-studio/newsletter-preview",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{CRED_WEBHOOK}}",
+          "name": "AI Studio – webhook secret"
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Instellingen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst preview = !!(body && body.preview);\nif (!preview && '{{KLAVIYO_LIST_ID}}'.startsWith('VUL_IN')) return []; // Klaviyo nog niet gekoppeld\nreturn [{json: {\n  preview,\n  // ▼ Invullen na koppelen van Klaviyo: ID van de lijst met ingeschreven klanten (Klaviyo → Lists & segments)\n  klaviyo_list_id: '{{KLAVIYO_LIST_ID}}',\n  from_email: '{{ADMIN_EMAIL}}',\n  from_label: 'AI Bag Studio',\n  shop_url: 'https://{{SHOP}}',\n  query: preview ? 'tag:ai-product-studio' : 'status:active tag:ai-product-studio -tag:nieuwsbrief-verstuurd'\n}}];"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Shopify token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://{{SHOP}}/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "{{CRED_SHOPIFY}}",
+          "name": "AI Studio – Shopify client credentials"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Nieuwe tassen ophalen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://{{SHOP}}/admin/api/{{API_VERSION}}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'query($q:String!){ products(first:12, query:$q, sortKey:CREATED_AT, reverse:true){ nodes{ id title handle status descriptionHtml variants(first:1){ nodes{ price } } media(first:6){ nodes{ alt ... on MediaImage{ image{ url } } } } } } }', variables: { q: $('Instellingen').first().json.query } }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Nieuwsbrief opmaken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const s = $('Instellingen').first().json;\nconst nodes = ($input.first().json.data?.products?.nodes) || [];\nif (!nodes.length) return [];\nconst esc = t => String(t ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\nconst strip = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst cards = nodes.map(p => {\n  const imgs = (p.media?.nodes || []).filter(m => m.image);\n  const sfeer = imgs.find(m => (m.alt || '').startsWith('Sfeerbeeld'));\n  const img = (sfeer || imgs[0])?.image?.url;\n  const price = p.variants?.nodes?.[0]?.price;\n  const url = `${s.shop_url}/products/${p.handle}`;\n  const firstP = (String(p.descriptionHtml || '').match(/<p[^>]*>([\\s\\S]*?)<\\/p>/i) || [])[1] || p.descriptionHtml;\n  const text = strip(firstP).slice(0, 220);\n  return `<tr><td style=\"padding:0 0 28px\">\n    ${img ? `<a href=\"${url}\"><img src=\"${img}\" width=\"560\" style=\"width:100%;max-width:560px;border-radius:10px;display:block\" alt=\"${esc(p.title)}\"></a>` : ''}\n    <h2 style=\"font-family:Georgia,serif;font-weight:normal;font-size:22px;margin:16px 0 6px;color:#1d1c1a\">${esc(p.title)}</h2>\n    <p style=\"font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#555;margin:0 0 10px\">${esc(text)}${text.length >= 220 ? '…' : ''}</p>\n    ${price && Number(price) > 0 ? `<p style=\"font-family:Arial,sans-serif;font-size:16px;margin:0 0 12px;color:#1d1c1a\"><b>€ ${Number(price).toFixed(2).replace('.', ',')}</b></p>` : ''}\n    <a href=\"${url}\" style=\"display:inline-block;background:#2f5d50;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;padding:11px 20px;border-radius:6px\">Bekijk de tas</a>\n  </td></tr>`;\n}).join('');\nconst n = nodes.length;\nconst subject = n === 1 ? `Nieuw binnen: ${nodes[0].title}` : `Nieuw binnen: ${n} nieuwe tassen`;\n// {% unsubscribe %} is de Klaviyo-tag voor de verplichte afmeldlink.\nconst html = `<!doctype html><html><body style=\"margin:0;background:#f6f5f2\"><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f6f5f2\"><tr><td align=\"center\" style=\"padding:24px 12px\">\n<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;background:#fff;border-radius:12px;padding:24px 20px\">\n<tr><td style=\"padding:0 0 20px;font-family:Georgia,serif;font-size:26px;color:#1d1c1a\">AI Bag Studio</td></tr>\n<tr><td style=\"padding:0 0 24px;font-family:Arial,sans-serif;font-size:15px;color:#555\">${n === 1 ? 'Er is een nieuwe tas binnen' : `Er zijn ${n} nieuwe tassen binnen`}. Elke tas is uniek; wie het eerst komt…</td></tr>\n${cards}\n<tr><td style=\"font-family:Arial,sans-serif;font-size:11px;color:#999;padding-top:8px\">Je ontvangt deze mail omdat je je hebt ingeschreven voor onze nieuwsbrief. ${s.preview ? '[afmeldlink]' : '{% unsubscribe %}'}</td></tr>\n</table></td></tr></table></body></html>`;\nconst listId = s.klaviyo_list_id;\nreturn [{json: {\n  preview: s.preview, subject, html, product_ids: nodes.map(p => p.id), count: n,\n  tpl_body: {data: {type: 'template', attributes: {name: `Nieuw binnen ${new Date().toISOString().slice(0, 10)}`, editor_type: 'CODE', html}}},\n  campaign_body: {data: {type: 'campaign', attributes: {\n    name: `Nieuw binnen ${new Date().toISOString().slice(0, 10)}`,\n    audiences: {included: [listId]},\n    send_strategy: {method: 'immediate'},\n    'campaign-messages': {data: [{type: 'campaign-message', attributes: {definition: {channel: 'email', label: subject,\n      content: {subject, preview_text: 'Nieuwe, unieke tassen in de webshop', from_email: s.from_email, from_label: s.from_label}}}}]}\n  }}}\n}}];"
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Voorbeeld?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.preview }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n8",
+      "name": "Voorbeeld opmaken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -60
+      ],
+      "parameters": {
+        "jsCode": "const n = $input.first().json;\nreturn [{json: {subject: `[VOORBEELD] ${n.subject}`, html: n.html}}];"
+      }
+    },
+    {
+      "id": "n9",
+      "name": "Voorbeeld naar beheerder",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        -60
+      ],
+      "parameters": {
+        "toRecipients": "{{ADMIN_EMAIL}}",
+        "subject": "={{ $json.subject }}",
+        "bodyContent": "={{ $json.html }}",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "{{CRED_OUTLOOK}}",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "id": "n10",
+      "name": "Klaviyo: template maken",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/templates",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2024-10-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.tpl_body) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{CRED_KLAVIYO}}",
+          "name": "Klaviyo API-sleutel (invullen)"
+        }
+      }
+    },
+    {
+      "id": "n11",
+      "name": "Klaviyo: campagne maken",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/campaigns",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2024-10-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Nieuwsbrief opmaken').first().json.campaign_body) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{CRED_KLAVIYO}}",
+          "name": "Klaviyo API-sleutel (invullen)"
+        }
+      }
+    },
+    {
+      "id": "n12",
+      "name": "Template koppelen voorbereiden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const tplId = $('Klaviyo: template maken').first().json.data.id;\nconst camp = $input.first().json.data;\nconst msgId = camp.relationships['campaign-messages'].data[0].id;\nreturn [{json: {campaign_id: camp.id,\n  assign_body: {data: {type: 'campaign-message', id: msgId, relationships: {template: {data: {type: 'template', id: tplId}}}}},\n  send_body: {data: {type: 'campaign-send-job', id: camp.id}}}}];"
+      }
+    },
+    {
+      "id": "n13",
+      "name": "Klaviyo: template koppelen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/campaign-message-assign-template",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2024-10-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.assign_body) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{CRED_KLAVIYO}}",
+          "name": "Klaviyo API-sleutel (invullen)"
+        }
+      }
+    },
+    {
+      "id": "n14",
+      "name": "Klaviyo: versturen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/campaign-send-jobs",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2024-10-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Template koppelen voorbereiden').first().json.send_body) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{CRED_KLAVIYO}}",
+          "name": "Klaviyo API-sleutel (invullen)"
+        }
+      }
+    },
+    {
+      "id": "n15",
+      "name": "Per product",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const n = $('Nieuwsbrief opmaken').first().json;\nreturn n.product_ids.map(id => ({json: {id}}));"
+      }
+    },
+    {
+      "id": "n16",
+      "name": "Shopify: tag nieuwsbrief-verstuurd",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://{{SHOP}}/admin/api/{{API_VERSION}}/graphql.json",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Shopify token').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'mutation($id:ID!){ tagsAdd(id:$id, tags:[\"nieuwsbrief-verstuurd\"]){ userErrors{ message } } }', variables: { id: $json.id } }) }}"
+      },
+      "executeOnce": false
+    },
+    {
+      "id": "n17",
+      "name": "Samenvatting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const n = $('Nieuwsbrief opmaken').first().json;\nreturn [{json: {subject: `✅ Nieuwsbrief verstuurd: ${n.subject}`, html: `<p>De nieuwsbrief <b>${n.subject}</b> met ${n.count} tas(sen) is via Klaviyo verstuurd naar je lijst.</p>`}}];"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "n18",
+      "name": "Bevestiging naar beheerder",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        200
+      ],
+      "parameters": {
+        "toRecipients": "{{ADMIN_EMAIL}}",
+        "subject": "={{ $json.subject }}",
+        "bodyContent": "={{ $json.html }}",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "{{CRED_OUTLOOK}}",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Elke maandag 09:47": {
+      "main": [
+        [
+          {
+            "node": "Instellingen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: voorbeeld naar beheerder": {
+      "main": [
+        [
+          {
+            "node": "Instellingen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instellingen": {
+      "main": [
+        [
+          {
+            "node": "Shopify token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify token": {
+      "main": [
+        [
+          {
+            "node": "Nieuwe tassen ophalen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nieuwe tassen ophalen": {
+      "main": [
+        [
+          {
+            "node": "Nieuwsbrief opmaken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nieuwsbrief opmaken": {
+      "main": [
+        [
+          {
+            "node": "Voorbeeld?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voorbeeld opmaken": {
+      "main": [
+        [
+          {
+            "node": "Voorbeeld naar beheerder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo: template maken": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo: campagne maken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo: campagne maken": {
+      "main": [
+        [
+          {
+            "node": "Template koppelen voorbereiden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template koppelen voorbereiden": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo: template koppelen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo: template koppelen": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo: versturen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo: versturen": {
+      "main": [
+        [
+          {
+            "node": "Per product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Per product": {
+      "main": [
+        [
+          {
+            "node": "Shopify: tag nieuwsbrief-verstuurd",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: tag nieuwsbrief-verstuurd": {
+      "main": [
+        [
+          {
+            "node": "Samenvatting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Samenvatting": {
+      "main": [
+        [
+          {
+            "node": "Bevestiging naar beheerder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voorbeeld?": {
+      "main": [
+        [
+          {
+            "node": "Voorbeeld opmaken",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Klaviyo: template maken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Amsterdam",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  }
+}

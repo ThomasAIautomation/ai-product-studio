@@ -1,0 +1,30 @@
+{
+  "name": "AI Product Studio – Beheerdersmelding (e-mail)",
+  "nodes": [
+    {
+      "id": "a1", "name": "Webhook: melding", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [0, 0],
+      "parameters": {"httpMethod": "POST", "path": "ai-product-studio/alert", "authentication": "headerAuth", "responseMode": "responseNode", "options": {}},
+      "credentials": {"httpHeaderAuth": {"id": "{{CRED_WEBHOOK}}", "name": "AI Studio – webhook secret"}}
+    },
+    {
+      "id": "a2", "name": "Mail opmaken", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [240, 0],
+      "parameters": {"jsCode": "const b = $input.first().json.body || {};\nconst esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\nconst items = Array.isArray(b.items) ? b.items : [];\nconst color = {kritiek: '#b3261e', fout: '#b3261e', waarschuwing: '#a86a00', info: '#2f5d50'}[b.level] || '#2f5d50';\nconst rows = items.map(i => `<tr><td style=\"padding:8px;border-bottom:1px solid #eee;vertical-align:top\"><b>${esc(i.title)}</b><br><span style=\"color:#555\">${esc(i.message)}</span>${i.link ? `<br><a href=\"${esc(i.link)}\">Openen</a>` : ''}</td></tr>`).join('');\nconst html = `<div style=\"font-family:Arial,sans-serif;max-width:640px\"><div style=\"background:${color};color:#fff;padding:12px 16px;border-radius:8px 8px 0 0\"><b>AI Product Studio</b> · ${esc(b.level || 'info')}</div><div style=\"border:1px solid #eee;border-top:0;padding:16px;border-radius:0 0 8px 8px\"><h2 style=\"margin:0 0 8px;font-size:18px\">${esc(b.subject)}</h2>${b.intro ? `<p>${esc(b.intro)}</p>` : ''}<table style=\"width:100%;border-collapse:collapse\">${rows}</table>${b.html_extra || ''}<p style=\"color:#888;font-size:12px;margin-top:16px\">Automatische melding · ${new Date().toLocaleString('nl-NL', {timeZone: 'Europe/Amsterdam'})}</p></div></div>`;\nconst prefix = {kritiek: '🚨', fout: '❌', waarschuwing: '⚠️', info: 'ℹ️'}[b.level] || 'ℹ️';\nreturn [{json: {subject: `${prefix} AI Product Studio: ${b.subject || 'melding'}`, html}}];"}
+    },
+    {
+      "id": "a3", "name": "E-mail naar beheerder", "type": "n8n-nodes-base.microsoftOutlook", "typeVersion": 2, "position": [480, 0],
+      "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 5000,
+      "parameters": {"toRecipients": "{{ADMIN_EMAIL}}", "subject": "={{ $json.subject }}", "bodyContent": "={{ $json.html }}", "additionalFields": {"bodyContentType": "html"}},
+      "credentials": {"microsoftOutlookOAuth2Api": {"id": "{{CRED_OUTLOOK}}", "name": "Microsoft Outlook account"}}
+    },
+    {
+      "id": "a4", "name": "Antwoord: verstuurd", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1, "position": [720, 0],
+      "parameters": {"respondWith": "json", "responseBody": "={{ { ok: true } }}", "options": {}}
+    }
+  ],
+  "connections": {
+    "Webhook: melding": {"main": [[{"node": "Mail opmaken", "type": "main", "index": 0}]]},
+    "Mail opmaken": {"main": [[{"node": "E-mail naar beheerder", "type": "main", "index": 0}]]},
+    "E-mail naar beheerder": {"main": [[{"node": "Antwoord: verstuurd", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "none"}
+}

@@ -51,6 +51,12 @@ PUBLISH_VIA = env("PUBLISH_VIA", "direct")
 N8N_PUBLISH_WEBHOOK_URL = env("N8N_PUBLISH_WEBHOOK_URL")
 N8N_WEBHOOK_SECRET = env("N8N_WEBHOOK_SECRET")
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL").rstrip("/")
+N8N_ALERT_WEBHOOK_URL = env("N8N_ALERT_WEBHOOK_URL")
+ADMIN_EMAIL = env("ADMIN_EMAIL", "Thomas.Lamers@hotmail.com")
+FACTCHECK = env("FACTCHECK", "true").lower() == "true"     # tweede AI-ronde die teksten controleert
+DAILY_SUMMARY_HOUR = int(env("DAILY_SUMMARY_HOUR", "8"))  # dagoverzicht per mail (Europe/Amsterdam), -1 = uit
+STUCK_MINUTES = int(env("STUCK_MINUTES", "15"))
+MONITOR = env("MONITOR", "true").lower() == "true"          # bewakingsthread (meldingen, gezondheid, dagoverzicht)
 
 DASHBOARD_PASSWORD = env("DASHBOARD_PASSWORD")
 WORKERS = int(env("WORKERS", "2"))
@@ -74,4 +80,6 @@ def status() -> dict:
         "shopify_shop": SHOPIFY_SHOP,
         "publish_via": PUBLISH_VIA,
         "n8n": bool(N8N_PUBLISH_WEBHOOK_URL),
+        "alerts": bool(N8N_ALERT_WEBHOOK_URL),
+        "factcheck": FACTCHECK and VISION_PROVIDER == "n8n",
     }

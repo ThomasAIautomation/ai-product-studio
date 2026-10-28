@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, db, worker
+from . import alerts, config, db, lint, worker
 
 ALLOWED = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD = 40 * 1024 * 1024
@@ -121,6 +121,7 @@ def get_product(pid: int):
     p = db.product_full(pid)
     if not p:
         raise HTTPException(404)
+    p["lint"] = lint.check(p)
     return _public(p)
 
 
@@ -136,6 +137,8 @@ class ProductEdit(BaseModel):
     vendor: str | None = None
     price: str | None = None
     image_choices: dict[int, bool] | None = None  # image_id -> bewerkte versie gebruiken?
+    seller: dict[str, str | float | None] | None = None  # door verkoper bevestigde info
+    dims: dict[str, float | None] | None = None            # breedte/hoogte/diepte in cm
 
 
 @app.patch("/api/products/{pid}")
@@ -145,7 +148,11 @@ def edit_product(pid: int, body: ProductEdit):
         raise HTTPException(404)
     if p["status"] in ("publishing", "published"):
         raise HTTPException(409, "Product is al (bijna) gepubliceerd.")
-    values = body.model_dump(exclude_none=True, exclude={"image_choices"})
+    values = body.model_dump(exclude_none=True, exclude={"image_choices", "seller", "dims"})
+    if body.seller is not None:
+        values["seller_json"] = json.dumps({k: v for k, v in body.seller.items() if v not in (None, "")}, ensure_ascii=False)
+    if body.dims is not None:
+        values["dims_json"] = json.dumps({k: float(v) for k, v in body.dims.items() if v}) if any(body.dims.values()) else None
     if "tags" in values:
         values["tags"] = json.dumps(values["tags"], ensure_ascii=False)
     if values:
@@ -163,10 +170,14 @@ def approve(pid: int, confirm_warnings: bool = False):
         raise HTTPException(404)
     flagged = db.query("SELECT position FROM images WHERE product_id=? AND use_processed=1 "
                        "AND json_extract(integrity_json,'$.completeness.review_required')=1", (pid,))
-    if flagged and not confirm_warnings:
-        raise HTTPException(409, {"code": "uitsnede_waarschuwing", "positions": [f["position"] for f in flagged],
-                                  "message": "Uitsnede van foto " + ", ".join(str(f["position"]) for f in flagged)
-                                  + " heeft een waarschuwing. Corrigeer de uitsnede, kies de originele foto, of bevestig."})
+    warnings = []
+    if flagged:
+        warnings.append("Uitsnede van foto " + ", ".join(str(f["position"]) for f in flagged)
+                        + " heeft een waarschuwing (corrigeer de uitsnede of kies de originele foto).")
+    warnings += ["Tekstcontrole: " + i["message"] for i in lint.check(db.product_full(pid)) if i["level"] == "fout"]
+    if warnings and not confirm_warnings:
+        raise HTTPException(409, {"code": "uitsnede_waarschuwing" if flagged else "tekst_waarschuwing",
+                                  "warnings": warnings, "message": "\n• ".join(["Controleer eerst:"] + warnings)})
     if p["status"] not in ("review", "publish_failed"):
         raise HTTPException(409, f"Status '{p['status']}' kan niet gepubliceerd worden.")
     if not p["title"]:
@@ -296,6 +307,37 @@ async def upload_scene(file: UploadFile = File(...), anchor_x: float = Form(0.5)
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(400, "Alleen JPG/PNG/WebP.")
     (config.SCENE_DIR / f"scene__x{anchor_x:.3f}_y{anchor_y:.3f}{ext}").write_bytes(await file.read())
+    return {"ok": True}
+
+
+@app.post("/api/admin/test-alert")
+def test_alert():
+    alerts.notify("info", "Testmelding vanuit het dashboard", "Als je deze mail ziet, werken de beheerdersmeldingen.")
+    return {"sent": alerts.flush(), "configured": bool(config.N8N_ALERT_WEBHOOK_URL)}
+
+
+@app.post("/api/admin/daily-summary")
+def send_daily_summary():
+    return {"sent": worker.daily_summary(force=True)}
+
+
+@app.post("/api/admin/health")
+def run_health():
+    return {"problems": worker.health_check(), "flushed": alerts.flush()}
+
+
+@app.post("/api/admin/newsletter-preview")
+def newsletter_preview():
+    """Laat n8n de nieuwsbrief opbouwen en alleen naar de beheerder mailen (ook met concepten)."""
+    import httpx
+    base = config.env("N8N_URL", "https://supplierresponse.app.n8n.cloud").rstrip("/")
+    try:
+        r = httpx.post(f"{base}/webhook/ai-product-studio/newsletter-preview", json={"preview": True},
+                       headers={"X-Studio-Secret": config.N8N_WEBHOOK_SECRET}, timeout=120)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"n8n onbereikbaar: {e}")
+    if r.status_code >= 300:
+        raise HTTPException(502, f"n8n antwoordde {r.status_code}: {r.text[:200]}")
     return {"ok": True}
 
 

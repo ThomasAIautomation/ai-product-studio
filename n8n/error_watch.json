@@ -1,0 +1,21 @@
+{
+  "name": "AI Product Studio – Foutbewaking n8n-workflows",
+  "nodes": [
+    {"id": "e1", "name": "Bij fout in een workflow", "type": "n8n-nodes-base.errorTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {
+      "id": "e2", "name": "Mail opmaken", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [240, 0],
+      "parameters": {"jsCode": "const j = $input.first().json;\nconst esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\nconst ex = j.execution || {}; const wf = j.workflow || {};\nconst err = ex.error || j.trigger?.error || {};\nconst html = `<div style=\"font-family:Arial,sans-serif;max-width:640px\"><div style=\"background:#b3261e;color:#fff;padding:12px 16px;border-radius:8px 8px 0 0\"><b>n8n-workflow mislukt</b></div><div style=\"border:1px solid #eee;border-top:0;padding:16px\"><p><b>Workflow:</b> ${esc(wf.name)}</p><p><b>Node:</b> ${esc(ex.lastNodeExecuted)}</p><p><b>Fout:</b> ${esc(err.message)}</p>${err.description ? `<p style=\"color:#555\">${esc(err.description)}</p>` : ''}${ex.url ? `<p><a href=\"${esc(ex.url)}\">Uitvoering bekijken in n8n</a></p>` : ''}<p style=\"color:#888;font-size:12px\">${new Date().toLocaleString('nl-NL', {timeZone: 'Europe/Amsterdam'})}</p></div></div>`;\nreturn [{json: {subject: `🚨 n8n-fout: ${wf.name || 'onbekende workflow'}`, html}}];"}
+    },
+    {
+      "id": "e3", "name": "E-mail naar beheerder", "type": "n8n-nodes-base.microsoftOutlook", "typeVersion": 2, "position": [480, 0],
+      "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 5000,
+      "parameters": {"toRecipients": "{{ADMIN_EMAIL}}", "subject": "={{ $json.subject }}", "bodyContent": "={{ $json.html }}", "additionalFields": {"bodyContentType": "html"}},
+      "credentials": {"microsoftOutlookOAuth2Api": {"id": "{{CRED_OUTLOOK}}", "name": "Microsoft Outlook account"}}
+    }
+  ],
+  "connections": {
+    "Bij fout in een workflow": {"main": [[{"node": "Mail opmaken", "type": "main", "index": 0}]]},
+    "Mail opmaken": {"main": [[{"node": "E-mail naar beheerder", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"}
+}
